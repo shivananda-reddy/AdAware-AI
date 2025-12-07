@@ -1,24 +1,128 @@
-fastapi
-uvicorn
-
-numpy
-pillow
-opencv-python
-pytesseract
-
-transformers
-sentence-transformers
-torch
-scikit-learn
-joblib
-langdetect
-
-requests
-beautifulsoup4
-streamlit
-openai
-python-multipart
-
-nltk
-redis
-huggingface-hub
+altair==5.5.0
+annotated-types @ file:///C:/miniconda3/conda-bld/annotated-types_1761745045323/work
+anyio @ file:///C:/miniconda3/conda-bld/anyio_1758622439618/work
+async-timeout==5.0.1
+attrs==25.3.0
+beautifulsoup4==4.14.3
+blinker==1.9.0
+blis==1.3.0
+cachetools==5.5.2
+catalogue==2.0.10
+certifi @ file:///C:/miniconda3/conda-bld/certifi_1763135347537/work/certifi
+charset-normalizer==3.4.1
+click==8.1.8
+cloudpathlib==0.21.0
+colorama @ file:///C:/b/abs_a9ozq0l032/croot/colorama_1672387194846/work
+confection==0.1.5
+contourpy==1.3.2
+cycler==0.12.1
+cymem==2.0.11
+distro @ file:///C:/b/abs_71xr36ua5r/croot/distro_1714488282676/work
+en_core_web_sm @ https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl#sha256=1932429db727d4bff3deed6b34cfc05df17794f4a52eeb26cf8928f7c1a0fb85
+exceptiongroup @ file:///C:/miniconda3/conda-bld/exceptiongroup_1761560437674/work
+fastapi==0.119.0
+filelock==3.18.0
+fonttools==4.57.0
+fsspec==2025.3.2
+gitdb==4.0.12
+GitPython==3.1.44
+h11 @ file:///C:/miniconda3/conda-bld/h11_1761931282349/work
+httpcore @ file:///C:/b/abs_25m7_xthp6/croot/httpcore_1748526065845/work
+httptools==0.7.1
+httpx @ file:///C:/miniconda3/conda-bld/httpx_1760447376159/work
+huggingface-hub==0.36.0
+idna==3.10
+Jinja2==3.1.6
+jiter @ file:///C:/miniconda3/conda-bld/jiter_1762897303434/work
+joblib==1.4.2
+jsonschema==4.23.0
+jsonschema-specifications==2025.4.1
+kiwisolver==1.4.8
+langcodes==3.5.0
+langdetect==1.0.9
+language_data==1.3.0
+lxml==5.4.0
+marisa-trie==1.2.1
+markdown-it-py==3.0.0
+MarkupSafe==3.0.2
+matplotlib==3.10.1
+mdurl==0.1.2
+mpmath==1.3.0
+murmurhash==1.0.12
+narwhals==1.36.0
+networkx==3.4.2
+nltk==3.9.1
+numpy==2.2.5
+oauthlib==3.2.2
+openai @ file:///C:/miniconda3/conda-bld/openai_1759140379512/work
+opencv-python==4.12.0.88
+opencv-python-headless==4.12.0.88
+packaging==24.2
+pandas==2.2.3
+pillow==12.0.0
+pillow-avif-plugin==1.5.2
+preshed==3.0.9
+protobuf==5.29.4
+pyarrow==19.0.1
+pydantic==2.11.3
+pydantic_core==2.33.1
+pydeck==0.9.1
+Pygments==2.19.1
+pyparsing==3.2.3
+pytesseract==0.3.13
+python-dateutil @ file:///home/conda/feedstock_root/build_artifacts/bld/rattler-build_python-dateutil_1751104122/work
+python-docx==1.1.2
+python-dotenv==1.2.1
+python-multipart @ file:///C:/b/abs_fdyhk6taah/croot/python-multipart_1743518699596/work
+pytz @ file:///home/conda/feedstock_root/build_artifacts/pytz_1742920838005/work
+PyYAML==6.0.2
+redis==7.1.0
+referencing==0.36.2
+regex==2024.11.6
+requests==2.32.5
+requests-oauthlib==2.0.0
+rich==14.0.0
+rpds-py==0.24.0
+safetensors==0.7.0
+scikit-learn @ file:///D:/bld/scikit-learn_1757432814257/work/dist/scikit_learn-1.7.2-cp310-cp310-win_amd64.whl#sha256=80780e7bac7c11947bc8f76f74cce4a729277e8fc2c67f76db5038e95de040c9
+scipy @ file:///C:/bld/scipy-split_1739790833536/work/dist/scipy-1.15.2-cp310-cp310-win_amd64.whl#sha256=4748853a0c723cda1fa2bdead847ba7c2443bde9cec3436e3e7243cfa54b55ff
+seaborn==0.13.2
+sentence-transformers==5.1.1
+sentencepiece==0.2.1
+shellingham==1.5.4
+six @ file:///home/conda/feedstock_root/build_artifacts/bld/rattler-build_six_1753199211/work
+smart-open==7.1.0
+smmap==5.0.2
+sniffio @ file:///C:/miniconda3/conda-bld/sniffio_1764329212488/work
+soupsieve==2.8
+spacy==3.8.5
+spacy-legacy==3.0.12
+spacy-loggers==1.0.5
+srsly==2.5.1
+starlette==0.48.0
+sympy==1.13.3
+tenacity==9.1.2
+textblob==0.19.0
+thinc==8.3.6
+threadpoolctl @ file:///home/conda/feedstock_root/build_artifacts/threadpoolctl_1741878222898/work
+tokenizers==0.22.1
+toml==0.10.2
+torch==2.9.1
+tornado==6.4.2
+tqdm @ file:///C:/miniconda3/conda-bld/tqdm_1762863407046/work
+transformers==4.57.3
+tweepy==4.15.0
+typer==0.15.2
+typing-inspection==0.4.0
+typing_extensions==4.13.2
+tzdata @ file:///home/conda/feedstock_root/build_artifacts/python-tzdata_1742745135198/work
+urllib3==2.4.0
+uvicorn==0.37.0
+vaderSentiment==3.3.2
+wasabi==1.1.3
+watchdog==6.0.0
+watchfiles==1.1.1
+weasel==0.4.1
+websockets==15.0.1
+wordcloud==1.9.4
+wrapt==1.17.2
