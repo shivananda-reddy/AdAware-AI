@@ -1,0 +1,21 @@
+# Python cache
+backend/__pycache__/
+*.pyc
+
+# Never upload API keys
+.env
+.env.*
+
+# Virtual environment (if you create it later)
+venv/
+.venv/
+
+# Node / Chrome extension future build files
+node_modules/
+dist/
+build/
+
+# System / Editor
+.DS_Store
+Thumbs.db
+.vscode/

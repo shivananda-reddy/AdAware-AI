@@ -1,0 +1,237 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>AdAware AI</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  
+  <style>
+    :root {
+      --bg-dark: #020617;
+      --card-bg: #020617;
+      --card-border: rgba(148, 163, 184, 0.35);
+      --accent: #6366f1;
+      --text-main: #f9fafb;
+      --text-muted: #9ca3af;
+      --danger: #ef4444;
+      --success: #22c55e;
+      --radius-md: 12px;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Inter", sans-serif;
+      background: radial-gradient(circle at top, #111827 0, #020617 60%);
+      color: var(--text-main);
+      min-width: 260px;
+      max-width: 320px;
+      padding: 12px;
+    }
+
+    .card {
+      background: rgba(15, 23, 42, 0.9);
+      border-radius: var(--radius-md);
+      border: 1px solid var(--card-border);
+      padding: 12px 14px;
+      box-shadow: 0 10px 25px rgba(0, 0, 0, 0.45);
+    }
+
+    .row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+
+    .col {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .title {
+      font-size: 0.95rem;
+      font-weight: 600;
+      letter-spacing: -0.01em;
+    }
+
+    .subtitle {
+      font-size: 0.75rem;
+      color: var(--text-muted);
+    }
+
+    .status-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 3px 8px;
+      border-radius: 999px;
+      font-size: 0.7rem;
+      border: 1px solid rgba(148, 163, 184, 0.5);
+      background: rgba(15, 23, 42, 0.9);
+      color: var(--text-muted);
+      white-space: nowrap;
+    }
+
+    .status-pill.online {
+      border-color: rgba(34, 197, 94, 0.6);
+      color: var(--success);
+    }
+
+    .status-pill.offline {
+      border-color: rgba(239, 68, 68, 0.6);
+      color: var(--danger);
+    }
+
+    .status-dot {
+      font-size: 0.9rem;
+    }
+
+    .section-label {
+      margin-top: 10px;
+      margin-bottom: 4px;
+      font-size: 0.7rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--text-muted);
+    }
+
+    .btn-primary,
+    .btn-subtle {
+      width: 100%;
+      border-radius: 999px;
+      border: none;
+      cursor: pointer;
+      font-size: 0.78rem;
+      font-weight: 500;
+      padding: 7px 10px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      transition: transform 0.12s ease, box-shadow 0.12s ease, background 0.12s ease;
+      outline: none;
+    }
+
+    .btn-primary {
+      background: linear-gradient(135deg, #4f46e5, #6366f1);
+      color: #f9fafb;
+      box-shadow: 0 6px 18px rgba(79, 70, 229, 0.6);
+      margin-bottom: 6px;
+    }
+
+    .btn-primary:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 8px 22px rgba(79, 70, 229, 0.8);
+    }
+
+    .btn-primary:disabled {
+      opacity: 0.6;
+      cursor: default;
+      transform: none;
+      box-shadow: none;
+    }
+
+    .btn-subtle {
+      background: rgba(15, 23, 42, 0.8);
+      color: var(--text-muted);
+      border: 1px solid rgba(148, 163, 184, 0.4);
+    }
+
+    .btn-subtle:hover {
+      background: rgba(15, 23, 42, 1);
+    }
+
+    .toggle-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-top: 4px;
+      gap: 8px;
+      font-size: 0.75rem;
+      color: var(--text-muted);
+    }
+
+    .toggle-row input[type="checkbox"] {
+      accent-color: var(--accent);
+    }
+
+    .hint {
+      margin-top: 8px;
+      font-size: 0.68rem;
+      color: var(--text-muted);
+      line-height: 1.4;
+    }
+
+    .hint strong {
+      color: #e5e7eb;
+      font-weight: 500;
+    }
+
+    .link {
+      color: var(--accent);
+      text-decoration: none;
+      font-size: 0.7rem;
+    }
+
+    .link:hover {
+      text-decoration: underline;
+    }
+
+    #popupError {
+      margin-top: 6px;
+      font-size: 0.7rem;
+      color: #fecaca;
+      display: none;
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="row">
+      <div class="col">
+        <div class="title">AdAware AI</div>
+        <div class="subtitle">Ad safety & trust companion</div>
+      </div>
+      <div id="popupBackendStatus" class="status-pill">
+        <span class="status-dot">●</span>
+        <span>Checking...</span>
+      </div>
+    </div>
+
+    <div class="section-label">Quick actions</div>
+
+    <button id="btnAnalyzeThisPage" class="btn-primary" type="button">
+      <span>Analyze selected ad on this page</span>
+    </button>
+
+    <button id="btnOpenDashboard" class="btn-subtle" type="button">
+      <span>Open advanced dashboard</span>
+    </button>
+
+    <div class="toggle-row">
+      <span>Enable LLM-enhanced summary</span>
+      <input type="checkbox" id="popupUseLlm" checked />
+    </div>
+
+    <div class="toggle-row">
+      <span>Show hover analyzer</span>
+      <input type="checkbox" id="popupEnableHover" checked />
+    </div>
+
+    <div id="popupError"></div>
+
+    <div class="hint">
+      <strong>Tip:</strong> Use the advanced dashboard to upload custom ad images or URLs.<br/>
+      <a href="#" id="openOptionsLink" class="link">Open dashboard in a full tab</a>
+    </div>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

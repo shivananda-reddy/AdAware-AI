@@ -1,0 +1,45 @@
+{
+  "manifest_version": 3,
+  "name": "AdAware AI – Ad Safety Companion",
+  "version": "1.0.0",
+
+  "description": "Analyze online ads with OCR, NLP, vision and LLM-backed trust scoring using the AdAware AI backend.",
+
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+
+  "action": {
+    "default_title": "AdAware AI",
+    "default_popup": "popup.html" 
+  },
+
+  "options_page": "dashboard.html",
+
+  "permissions": [
+    "activeTab",
+    "scripting",
+    "contextMenus",
+    "storage"
+  ],
+
+  "host_permissions": [
+    "http://127.0.0.1:8000/*"
+  ],
+
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["contentScript.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}
