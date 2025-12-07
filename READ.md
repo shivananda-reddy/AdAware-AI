@@ -16,7 +16,7 @@ It uses Computer Vision, OCR, NLP, and LLMs to understand ad content and provide
 - 🏷️ **Classification**
   - Labels ads (e.g., safe / potentially misleading, etc. – customizable).
 - 🧩 **Chrome extension UI**
-  - Hover or click to see verdicts, key info, and summary.
+  - Hover or click to see verdicts, key info.
 - 📊 **Web dashboard (WIP)**
   - Simple interface to test the backend with sample ads.
 
