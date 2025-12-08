@@ -142,6 +142,12 @@ async def analyze_hover(payload: HoverPayload):
       }
     """
     try:
+        if not (payload.image_base64 or payload.image_url or payload.caption_text):
+            raise HTTPException(
+                status_code=400,
+                detail="Provide image_base64, image_url, or caption_text to analyze.",
+            )
+
         key = to_hash(
             payload.image_base64,
             payload.image_url,
