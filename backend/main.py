@@ -147,6 +147,8 @@ async def analyze_hover(payload: HoverPayload):
             payload.image_url,
             payload.caption_text,
             payload.page_origin,
+            # Consent affects whether LLM enrichment runs; cache separately
+            bool(payload.consent),
         )
         if key in CACHE:
             safe_cached = sanitize(CACHE[key])
