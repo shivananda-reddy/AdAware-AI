@@ -117,6 +117,8 @@ def _clip_similarity(pil_image: Image.Image, text: str) -> Optional[float]:
             images=[pil_image],
             return_tensors="pt",
             padding=True,
+            truncation=True,
+            max_length=77,
         )
         with torch.no_grad():
             outputs = model(**inputs)

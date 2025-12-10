@@ -312,7 +312,7 @@ async def analyze_hover(payload: HoverPayload):
         # 10) OPTIONAL LLM enhancement (Hybrid Option C, gated by consent)
         try:
             if payload.consent:
-                report = maybe_enhance_with_llm(report)
+                report = await maybe_enhance_with_llm(report)
         except Exception as e:
             LOG.warning("LLM enhancement failed: %s", e)
 
