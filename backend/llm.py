@@ -2,7 +2,7 @@
 """
 LLM integration for AdAware AI.
 
-Uses OpenAI Responses API (gpt-4o by default) to:
+Uses OpenAI Chat Completions API (gpt-4o by default) with JSON mode to:
 - Generate a user-friendly natural language summary.
 - Provide its own opinion on:
     - label / risk level
@@ -49,18 +49,7 @@ The same LLM call also tries to enhance individual pipeline parts:
     - llm_summary (main 180–220 word narrative summary for the user)
 
 We do NOT throw away the classic pipeline numbers, we just add
-LLM-based fields alongside them:
-- llm_summary
-- label_llm
-- credibility_llm
-- trust.risk_level_llm
-- trust.risk_signals (extended)
-- product_info (optionally refined)
-- ocr_enhanced
-- nlp.llm
-- vision.llm
-- fusion_llm
-- llm_explanation
+LLM-based fields alongside them.
 
 If OPENAI_API_KEY is missing or any error occurs, we keep the report
 and only attach `llm_error`.
@@ -70,20 +59,31 @@ from __future__ import annotations
 
 import os
 import json
-import re
-from typing import Dict, Any
+import logging
+from typing import Dict, Any, Optional
 
-from openai import OpenAI
+try:
+    from openai import AsyncOpenAI
+except ImportError:
+    AsyncOpenAI = None  # type: ignore
 
 DEFAULT_MODEL = os.getenv("AD_AWARE_LLM_MODEL", "gpt-4o")
+
+logger = logging.getLogger(__name__)
 
 
 def _has_api_key() -> bool:
     return bool(os.getenv("OPENAI_API_KEY"))
 
 
-def _get_client() -> OpenAI:
-    return OpenAI()
+def _get_client() -> Optional[AsyncOpenAI]:
+    if AsyncOpenAI is None:
+        logger.warning("openai package not installed or AsyncOpenAI not available.")
+        return None
+    api_key = os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        return None
+    return AsyncOpenAI(api_key=api_key)
 
 
 def _build_context(report: Dict[str, Any]) -> Dict[str, Any]:
@@ -92,7 +92,7 @@ def _build_context(report: Dict[str, Any]) -> Dict[str, Any]:
     confidence = report.get("confidence")
     credibility = report.get("credibility")
 
-    ocr_text = (report.get("ocr_text") or "")[:900]
+    ocr_text = (report.get("ocr_text") or "")[:1500]  # Increased limit slightly
 
     nlp = report.get("nlp") or {}
     sentiment = nlp.get("sentiment") or {}
@@ -177,267 +177,165 @@ def _build_context(report: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def _build_prompt_json_mode(context: Dict[str, Any]) -> str:
+SYSTEM_PROMPT = """You are an expert AI assistant that evaluates online ads and product promotions for safety, truthfulness, and quality.
+
+You will receive a structured JSON analysis of an ad containing OCR text, computer vision labels, sentiment analysis, and trust signals.
+
+Your task is to synthesize this information and return a single, valid JSON object containing a user-facing summary and enhanced analysis fields.
+
+Response Schema (JSON):
+{
+  "summary": "string, 180-220 words, plain text, 2-3 short paragraphs talking directly to the user",
+  "label_llm": "classification label (e.g., Safe Promotion, Scam Risk, High Pressure Sales, Informational)",
+  "credibility_llm": number (0-100, where 100 is perfectly trustworthy),
+  "risk_level": "low" | "medium" | "high",
+  "risk_signals_extra": ["list of additional risk strings"],
+  "product_info_updates": {
+      "product_name": "string",
+      "brand_name": "string",
+      "category": "string",
+      "detected_price": "string"
+  },
+  "ocr_enhanced": {
+      "ocr_text_clean": "cleaned version of OCR text",
+      "issues": ["list of OCR quality issues"],
+      "language": "ISO code (e.g. en, es)"
+  },
+  "nlp_enhanced": {
+      "enhanced_summary": "1-2 sentence summary of the text content",
+      "manipulative_phrases": ["list of manipulative or high-pressure phrases found"],
+      "claims": ["list of key factual claims"],
+      "call_to_action_strength": "low" | "medium" | "high"
+  },
+  "vision_enhanced": {
+      "visual_facts": ["list of key visual elements confirmed"],
+      "suspicious_visual_cues": ["list of potential deepfake artifacts or low-quality cues"],
+      "brand_consistency_notes": "string"
+  },
+  "fusion_reasoning": {
+      "overall_consistency": "consistent" | "partially_consistent" | "inconsistent",
+      "consistency_score": number (0.0-1.0),
+      "reasoning": "string explaining the consistency verdict"
+  },
+  "explanation_refined": {
+      "bullets": ["3-5 distinct bullet points explaining the risk level and score"],
+      "short_takeaway": "One clear actionable sentence for the user"
+  }
+}
+"""
+
+
+async def maybe_enhance_with_llm(report: Dict[str, Any]) -> Dict[str, Any]:
     """
-    Ask the LLM to return JSON with:
-      - summary (text for the user)
-      - label_llm
-      - credibility_llm
-      - risk_level
-      - risk_signals_extra
-      - product_info_updates
-
-    HYBRID OPTION C: also return per-module enhancements:
-      - ocr_enhanced
-      - nlp_enhanced
-      - vision_enhanced
-      - fusion_reasoning
-      - explanation_refined
-    """
-    raw = json.dumps(context, ensure_ascii=False)
-    if len(raw) > 7000:
-        raw = raw[:7000] + "... [truncated]"
-
-    prompt = (
-        "You are an assistant that evaluates online ads and product promotions.\n"
-        "You receive a structured analysis of ONE ad in JSON.\n\n"
-        "Use ALL of it: classification, OCR text, sentiment, entities, vision result, "
-        "image quality (blur), image-text similarity, trust signals, and value judgement.\n\n"
-        "Your job is to return ONE JSON object with this exact shape:\n\n"
-        "{\n"
-        '  "summary": "string, 180-220 words, plain text, 1-3 short paragraphs",\n'
-        '  "label_llm": "your classification label string (e.g. Safe Promotion, Scam Risk, Strongly Promotional, Neutral Info)",\n'
-        '  "credibility_llm": number between 0 and 100 (your overall trust score, higher = safer),\n'
-        '  "risk_level": "low" | "medium" | "high",\n'
-        '  "risk_signals_extra": ["list of extra risk or safety observations as short phrases"],\n'
-        '  "product_info_updates": {\n'
-        '      "product_name": "string or empty if unknown",\n'
-        '      "brand_name": "string or empty if unknown",\n'
-        '      "category": "short category like Energy Drink, Shoes, Phone, Service, Cosmetics",\n'
-        '      "detected_price": "price string if visible, else empty"\n'
-        "  },\n"
-        '  "ocr_enhanced": {\n'
-        '      "ocr_text_clean": "cleaned and de-duplicated version of the main OCR text",\n'
-        '      "issues": ["short bullet points about OCR limitations or missing pieces"],\n'
-        '      "language": "language of the ad text if you can guess it (e.g. en, hi, kn, etc.)"\n'
-        "  },\n"
-        '  "nlp_enhanced": {\n'
-        '      "enhanced_summary": "2-4 sentences summarizing the main claim and tone of the text only",\n'
-        '      "manipulative_phrases": ["phrases that seem pushy, misleading, or manipulative"],\n'
-        '      "claims": ["short bullets of key claims/promises made in the text"],\n'
-        '      "call_to_action_strength": "low" | "medium" | "high"\n'
-        "  },\n"
-        '  "vision_enhanced": {\n'
-        '      "visual_facts": ["short bullets describing what is visually shown (logos, products, scenes)"],\n'
-        '      "suspicious_visual_cues": ["any visual elements that look low-quality, fake, or inconsistent"],\n'
-        '      "brand_consistency_notes": "short sentence on whether image matches the claimed brand/product"\n'
-        "  },\n"
-        '  "fusion_reasoning": {\n'
-        '      "overall_consistency": "consistent" | "partially_consistent" | "inconsistent",\n'
-        '      "consistency_score": "number between 0 and 1 where 1 = perfectly consistent",\n'
-        '      "reasoning": "short paragraph describing how image, text, trust signals, and value judgement fit together"\n'
-        "  },\n"
-        '  "explanation_refined": {\n'
-        '      "bullets": ["3-6 short user-friendly bullets explaining why you gave this risk level and credibility score"],\n'
-        '      "short_takeaway": "one-sentence plain-English advice to the user"\n'
-        "  }\n"
-        "}\n\n"
-        "Rules:\n"
-        "- Use the vision info to describe what is visually shown (brand, product, scene).\n"
-        "- Use OCR + NLP info to understand claims and tone.\n"
-        "- Consider blur_score and is_blurry: if the image is blurry or low-quality, mention it in risk_signals_extra.\n"
-        "- Consider image_text_similarity: if very low, treat it as a risk and reflect that in fusion_reasoning.\n"
-        "- Consider trust/risk_signals from the input, but you can add your own.\n"
-        "- Do NOT mention JSON, fields, or internal names in the summary; talk directly to the user.\n"
-        "- Output ONLY the JSON object, no explanation around it.\n\n"
-        "Here is the input analysis JSON:\n"
-        f"{raw}\n\n"
-        "Return ONLY the JSON object now."
-    )
-    return prompt
-
-
-def _parse_llm_json(text: str) -> Dict[str, Any]:
-    """Robustly parse a JSON object from model output."""
-    try:
-        return json.loads(text)
-    except Exception:
-        # try to extract first {...}
-        m = re.search(r"\{.*\}", text, flags=re.S)
-        if m:
-            try:
-                return json.loads(m.group(0))
-            except Exception:
-                return {}
-        return {}
-
-
-def _extract_response_text(resp: Any) -> str:
-    """
-    Best-effort extraction of text from Responses API result.
-
-    Kept as a helper so we can adjust without touching the main logic.
-    """
-    # Newer SDKs may expose `output_text`
-    out_text = None
-    try:
-        out_text = getattr(resp, "output_text", None)
-    except Exception:
-        out_text = None
-
-    if isinstance(out_text, str) and out_text.strip():
-        return out_text
-
-    # Fallback: manual walk through `output` -> `content` -> `text`
-    parts = []
-    try:
-        for item in getattr(resp, "output", []) or []:
-            for c in getattr(item, "content", []) or []:
-                t = getattr(c, "text", None)
-                if not t:
-                    continue
-                # Some SDK versions wrap the string in an object
-                if isinstance(t, str):
-                    parts.append(t)
-                else:
-                    val = getattr(t, "value", None)
-                    if isinstance(val, str):
-                        parts.append(val)
-    except Exception:
-        pass
-
-    return "".join(parts)
-
-
-def maybe_enhance_with_llm(report: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    Call the LLM to:
-      - add llm_summary
-      - add label_llm, credibility_llm
-      - extend trust with risk_level_llm and extra risk_signals
-      - refine product_info
-
-    HYBRID OPTION C:
-      - add OCR enhancement (ocr_enhanced + ocr_text_llm)
-      - add NLP enhancement under nlp["llm"]
-      - add Vision enhancement under vision["llm"]
-      - add fusion_llm reasoning block
-      - add llm_explanation (bullets + short takeaway)
-
-    Never raises; returns enhanced copy of report.
+    Async call to OpenAI to enhance the report with:
+      - Summaries
+      - Enhanced metadata (OCR, NLP, Vision)
+      - Fused reasoning
+      - Trust scores
+    
+    Returns a COPY of the report with added LLM fields.
     """
     enhanced = dict(report)
 
     if not _has_api_key():
-        enhanced["llm_error"] = "OPENAI_API_KEY not set in environment"
+        enhanced["llm_error"] = "OPENAI_API_KEY not set"
+        return enhanced
+    
+    client = _get_client()
+    if not client:
+        enhanced["llm_error"] = "Could not initialize OpenAI client"
         return enhanced
 
     try:
-        context = _build_context(report)
-        prompt = _build_prompt_json_mode(context)
+        # Prepare Context
+        context_data = _build_context(enhanced)
+        user_content = json.dumps(context_data, ensure_ascii=False)
+        
+        # Safe truncation to Avoid Context Window Errors (approx check)
+        if len(user_content) > 15000:
+            user_content = user_content[:15000] + "... [TRUNCATED]"
 
-        client = _get_client()
-        resp = client.responses.create(
+        # Async API Call
+        response = await client.chat.completions.create(
             model=DEFAULT_MODEL,
-            input=prompt,
+            messages=[
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": f"Analyze this ad data:\n{user_content}"}
+            ],
+            response_format={"type": "json_object"},
+            temperature=0.0,  # Low temperature for consistent JSON
+            max_tokens=1500
         )
 
-        out_text = _extract_response_text(resp)
-        data = _parse_llm_json(out_text)
-        if not isinstance(data, dict):
-            data = {}
+        content = response.choices[0].message.content
+        if not content:
+            raise ValueError("Empty response from LLM")
 
-        # 1) Summary
-        summary = data.get("summary")
-        if isinstance(summary, str) and summary.strip():
-            enhanced["llm_summary"] = summary.strip()
+        data = json.loads(content)
 
-        # 2) LLM label & credibility
-        label_llm = data.get("label_llm")
-        if isinstance(label_llm, str) and label_llm.strip():
-            enhanced["label_llm"] = label_llm.strip()
+        # --- Merge Data Back ---
+        
+        # 1. Top Level Fields
+        if "summary" in data:
+            enhanced["llm_summary"] = data["summary"]
+        if "label_llm" in data:
+            enhanced["label_llm"] = data["label_llm"]
+        if "credibility_llm" in data:
+            enhanced["credibility_llm"] = data["credibility_llm"]
+        
+        # 2. Product Info
+        if "product_info_updates" in data:
+            current_prod = enhanced.get("product_info") or {}
+            updates = data["product_info_updates"]
+            # Only update if value is present
+            for k, v in updates.items():
+                if v and isinstance(v, str):
+                    current_prod[k] = v
+            enhanced["product_info"] = current_prod
 
-        cred_llm = data.get("credibility_llm")
-        try:
-            if cred_llm is not None:
-                enhanced["credibility_llm"] = float(cred_llm)
-        except Exception:
-            pass
-
-        # 3) Product info updates
-        p_updates = data.get("product_info_updates") or {}
-        if isinstance(p_updates, dict):
-            pinfo = dict(enhanced.get("product_info") or {})
-            for field in ("product_name", "brand_name", "category", "detected_price"):
-                val = p_updates.get(field)
-                if isinstance(val, str) and val.strip():
-                    pinfo[field] = val.strip()
-            enhanced["product_info"] = pinfo
-
-        # 4) Trust / risk level + extra signals
-        trust = dict(enhanced.get("trust") or {})
-        risk_level = data.get("risk_level")
-        if isinstance(risk_level, str) and risk_level.strip():
-            trust["risk_level_llm"] = risk_level.strip().lower()
-
-        extra_signals = data.get("risk_signals_extra") or []
-        if isinstance(extra_signals, list):
-            base = trust.get("risk_signals") or []
-            if not isinstance(base, list):
-                base = []
-            base_extended = base + [s for s in extra_signals if isinstance(s, str)]
-            # dedupe while preserving order
-            seen = set()
-            deduped = []
-            for s in base_extended:
-                if s not in seen:
-                    seen.add(s)
-                    deduped.append(s)
-            trust["risk_signals"] = deduped
-
+        # 3. Trust & Risk
+        trust = enhanced.get("trust") or {}
+        if "risk_level" in data:
+            trust["risk_level_llm"] = data["risk_level"]
+        
+        if "risk_signals_extra" in data:
+            current_signals = trust.get("risk_signals") or []
+            new_signals = data["risk_signals_extra"]
+            if isinstance(new_signals, list):
+                # Unique merge
+                trust["risk_signals"] = list(set(current_signals + new_signals))
         enhanced["trust"] = trust
 
-        # 5) OCR enhancement
-        ocr_enhanced = data.get("ocr_enhanced") or {}
-        if isinstance(ocr_enhanced, dict):
-            # Store full block for any consumer (e.g., ocr.py / UI)
-            enhanced["ocr_enhanced"] = ocr_enhanced
+        # 4. Enhanced Modules
+        if "ocr_enhanced" in data:
+            enhanced["ocr_enhanced"] = data["ocr_enhanced"]
+            # Backward compat convenience
+            if "ocr_text_clean" in data["ocr_enhanced"]:
+                enhanced["ocr_text_llm"] = data["ocr_enhanced"]["ocr_text_clean"]
 
-            # Convenience field: cleaned OCR text
-            clean = ocr_enhanced.get("ocr_text_clean")
-            if isinstance(clean, str) and clean.strip():
-                enhanced["ocr_text_llm"] = clean.strip()
+        if "nlp_enhanced" in data:
+            nlp = enhanced.get("nlp") or {}
+            nlp["llm"] = data["nlp_enhanced"]
+            enhanced["nlp"] = nlp
 
-        # 6) NLP enhancement (attached under nlp["llm"])
-        nlp_enhanced = data.get("nlp_enhanced") or {}
-        if isinstance(nlp_enhanced, dict):
-            nlp_block = dict(enhanced.get("nlp") or {})
-            # Do not overwrite existing fields; just add an "llm" sub-block
-            nlp_block["llm"] = nlp_enhanced
-            enhanced["nlp"] = nlp_block
+        if "vision_enhanced" in data:
+            vision = enhanced.get("vision") or {}
+            vision["llm"] = data["vision_enhanced"]
+            enhanced["vision"] = vision
 
-        # 7) Vision enhancement (attached under vision["llm"])
-        vision_enhanced = data.get("vision_enhanced") or {}
-        if isinstance(vision_enhanced, dict):
-            vision_block = dict(enhanced.get("vision") or {})
-            vision_block["llm"] = vision_enhanced
-            enhanced["vision"] = vision_block
+        # 5. Fusion & Explanation
+        if "fusion_reasoning" in data:
+            enhanced["fusion_llm"] = data["fusion_reasoning"]
+        
+        if "explanation_refined" in data:
+            enhanced["llm_explanation"] = data["explanation_refined"]
 
-        # 8) Fusion reasoning
-        fusion_reasoning = data.get("fusion_reasoning") or {}
-        if isinstance(fusion_reasoning, dict):
-            enhanced["fusion_llm"] = fusion_reasoning
-
-        # 9) Explanation refinement
-        explanation_refined = data.get("explanation_refined") or {}
-        if isinstance(explanation_refined, dict):
-            # Keep full structure for downstream consumers
-            enhanced["llm_explanation"] = explanation_refined
-
-        # clear any previous error
+        # Success - clear any old errors
         enhanced.pop("llm_error", None)
-        return enhanced
 
     except Exception as e:
-        enhanced["llm_error"] = f"LLM call failed: {type(e).__name__}: {e}"
-        return enhanced
+        logger.error(f"LLM enhancement failed: {e}", exc_info=True)
+        enhanced["llm_error"] = str(e)
+
+    return enhanced
+
