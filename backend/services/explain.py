@@ -34,9 +34,9 @@ from __future__ import annotations
 
 from typing import List, Dict, Any
 
-from backend import classifier
-from backend.nlp import STRONG_SELL_PHRASES, get_persuasion_signals, get_effective_nlp_summary
-from backend import vision
+from backend.services import classifier
+from backend.services.nlp import STRONG_SELL_PHRASES, get_persuasion_signals, get_effective_nlp_summary
+from backend.services import vision
 
 
 def highlight_keywords(text: str) -> List[str]:
