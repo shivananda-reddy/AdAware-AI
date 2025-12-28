@@ -40,9 +40,10 @@ document.getElementById('test-connection').addEventListener('click', async () =>
   status.style.color = '#888';
 
   try {
-    const res = await fetch(backendUrl + '/docs', { method: 'HEAD' });
+    const res = await fetch(backendUrl + '/health');
     if (res.ok) {
-      status.textContent = 'Backend: Online';
+      const data = await res.json();
+      status.textContent = `Backend: Online (OpenAI: ${data.openai_configured ? 'Yes' : 'No'})`;
       status.style.color = '#0f0';
     } else {
       status.textContent = 'Backend: Error ' + res.status;

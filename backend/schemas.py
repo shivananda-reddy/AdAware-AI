@@ -84,6 +84,10 @@ class AnalysisResult(BaseModel):
     rule_triggers: List[RuleTrigger] = []
     source_reputation: SourceReputation = Field(default_factory=SourceReputation)
     
+    # New Split Scoring
+    health_advisory: List[str] = [] # e.g. ["High Caffeine", "Tobacco Warning"]
+    legitimacy_score: float = 0.5 # 0.0 to 1.0 (1.0 = highly trusted brand)
+    
     ocr_text: Optional[str] = None
     llm_used: bool = False
     cache_hit: bool = False
@@ -93,6 +97,11 @@ class AnalysisResult(BaseModel):
     # Backward compatibility with old classify/explain fields (merged view)
     explanation_text: Optional[str] = None 
     confidence: float = 0.0
+
+    # Extended Metrics
+    image_text_similarity: Optional[float] = None
+    image_quality: Optional[Dict[str, Any]] = None
+    product_info: Optional[Dict[str, Any]] = None # e.g. category, price_range
 
 class StatsResponse(BaseModel):
     total_analyses: int

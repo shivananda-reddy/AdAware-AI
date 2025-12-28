@@ -7,15 +7,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from backend.core.config import API_TITLE
-from backend.core.logging_config import setup_logging
-from backend.api import router as api_router
-
-LOG = setup_logging()
-
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
-from backend.core.config import API_TITLE
+from backend.core.config import API_TITLE, validate_config
 from backend.core.logging_config import setup_logging
 from backend.api import router as api_router
 from backend.services import storage
@@ -26,6 +18,7 @@ app = FastAPI(title=API_TITLE)
 
 @app.on_event("startup")
 def on_startup():
+    validate_config()
     storage.init_db()
 
 # Allow requests from local web dashboard (dev only)

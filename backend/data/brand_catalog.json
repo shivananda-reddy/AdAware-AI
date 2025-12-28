@@ -1,0 +1,47 @@
+[
+  {
+    "id": "redbull",
+    "names": ["Red Bull", "RedBull"],
+    "category": "Energy Drink",
+    "trust_baseline": "high",
+    "health_advisory": ["High Caffeine", "Not recommended for children"],
+    "keywords": ["energy", "wings", "vitalizes"],
+    "price_range": "2.00 - 5.00 USD"
+  },
+  {
+    "id": "nike",
+    "names": ["Nike", "Just Do It"],
+    "category": "Apparel & Footwear",
+    "trust_baseline": "high",
+    "health_advisory": [],
+    "keywords": ["shoes", "sneakers", "athletic"],
+    "price_range": "50.00 - 200.00 USD"
+  },
+  {
+    "id": "apple",
+    "names": ["Apple", "iPhone", "MacBook"],
+    "category": "Consumer Electronics",
+    "trust_baseline": "high",
+    "health_advisory": [],
+    "keywords": ["tech", "phone", "laptop"],
+    "price_range": "400.00 - 2000.00 USD"
+  },
+  {
+    "id": "samsung",
+    "names": ["Samsung", "Galaxy"],
+    "category": "Consumer Electronics",
+    "trust_baseline": "high",
+    "health_advisory": [],
+    "keywords": ["android", "phone", "tv"],
+    "price_range": "200.00 - 1500.00 USD"
+  },
+  {
+    "id": "johnsons_baby",
+    "names": ["Johnson's", "Johnson & Johnson", "Johnson's Baby"],
+    "category": "Baby Care",
+    "trust_baseline": "high",
+    "health_advisory": [],
+    "keywords": ["baby", "powder", "gentle", "tear-free"],
+    "price_range": "3.00 - 15.00 USD"
+  }
+]

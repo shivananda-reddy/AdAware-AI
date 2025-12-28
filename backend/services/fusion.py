@@ -48,6 +48,10 @@ from PIL import Image
 
 LOG = logging.getLogger("adaware.fusion")
 
+import os
+ADAWARE_HF_OFFLINE = os.environ.get("ADAWARE_HF_OFFLINE", "0") == "1"
+ADAWARE_DISABLE_CLIP = os.environ.get("ADAWARE_DISABLE_CLIP", "0") == "1"
+
 # ---------------------------------------------------------------------
 # Try to load CLIP model via transformers
 # ---------------------------------------------------------------------
@@ -70,21 +74,42 @@ except Exception as e:  # pragma: no cover
     _HAS_CLIP = False
 
 
-def _get_clip_model() -> Optional["CLIPModel"]:
-    global _CLIP_MODEL, _CLIP_PROCESSOR
-    if not _HAS_CLIP:
-        return None
-    if _CLIP_MODEL is None or _CLIP_PROCESSOR is None:
-        try:
-            _CLIP_MODEL = CLIPModel.from_pretrained("openai/clip-vit-base-patch32")
-            _CLIP_PROCESSOR = CLIPProcessor.from_pretrained("openai/clip-vit-base-patch32")
-            LOG.info("Loaded CLIP model: openai/clip-vit-base-patch32")
-        except Exception as e:
-            LOG.error("Failed to load CLIP model, falling back to heuristic: %s", e)
-            _CLIP_MODEL = None
-            _CLIP_PROCESSOR = None
-    return _CLIP_MODEL
+_CLIP_MODEL = None
+_CLIP_PROCESSOR = None
+_CLIP_LOAD_FAILED = False
 
+def get_clip_model():
+    global _CLIP_MODEL, _CLIP_LOAD_FAILED
+    if ADAWARE_DISABLE_CLIP:
+        return None
+    if _CLIP_LOAD_FAILED:
+        return None
+    if _CLIP_MODEL:
+        return _CLIP_MODEL
+    
+    try:
+        LOG.info("Loading CLIP model...")
+        kwargs = {"local_files_only": True} if ADAWARE_HF_OFFLINE else {}
+        _CLIP_MODEL = CLIPModel.from_pretrained("openai/clip-vit-base-patch32", **kwargs)
+        return _CLIP_MODEL
+    except Exception as e:
+        LOG.warning(f"Failed to load CLIP model (Offline={ADAWARE_HF_OFFLINE}): {e}")
+        _CLIP_LOAD_FAILED = True
+        return None
+
+def get_clip_processor():
+    global _CLIP_PROCESSOR
+    if ADAWARE_DISABLE_CLIP or _CLIP_LOAD_FAILED:
+        return None
+    if _CLIP_PROCESSOR:
+        return _CLIP_PROCESSOR
+
+    try:
+        kwargs = {"local_files_only": True} if ADAWARE_HF_OFFLINE else {}
+        _CLIP_PROCESSOR = CLIPProcessor.from_pretrained("openai/clip-vit-base-patch32", **kwargs)
+        return _CLIP_PROCESSOR
+    except Exception:
+        return None
 
 def _clip_similarity(pil_image: Image.Image, text: str) -> Optional[float]:
     """
@@ -198,7 +223,9 @@ def compute_image_text_similarity(pil_image: Optional[Image.Image], text: str) -
         return sim
 
     # Fallback
-    return _heuristic_similarity(text)
+    # If CLIP/Visual analysis failed but we have an image, return None 
+    # to indicate "Unavailable" rather than a weak heuristic guess.
+    return None
 
 
 # ---------------------------------------------------------------------

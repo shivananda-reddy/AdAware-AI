@@ -1,11 +1,21 @@
 
 from typing import List, Optional
+import os
 from fastapi import APIRouter, HTTPException, Query
 from backend.schemas import HoverPayload, AnalysisResult, FeedbackPayload, StatsResponse
 from backend.services.pipeline import run_analysis_pipeline
 from backend.services import storage
 
 router = APIRouter()
+
+@router.get("/health")
+async def health_check():
+    """Health check endpoint for extension/dashboard."""
+    openai_configured = bool(os.getenv("OPENAI_API_KEY"))
+    return {
+        "status": "ok",
+        "openai_configured": openai_configured
+    }
 
 @router.post("/analyze_hover", response_model=AnalysisResult)
 async def analyze_hover(payload: HoverPayload):

@@ -1,55 +1,34 @@
 # backend/classifier.py
 """
-Classification and credibility scoring for AdAware AI.
+Classification, Legitimacy Scoring, and Confidence computation.
 
-Provides:
-- predict_label(text) -> (label: str, confidence: float)
-- compute_credibility_score(...) -> float in [0, 100]
-- build_full_report(...) -> Dict[str, Any]
-
-This module combines:
-- model-style label + confidence (heuristics for now),
-- image–text similarity,
-- sentiment,
-- simple entity / URL / price info from NLP,
-into a single report used by the API + web dashboard.
-
-Hybrid Option C (LLM-aware view):
-
-The classic functions above do NOT call the LLM and are safe even when
-no OpenAI key is present.
-
-The llm module may later attach:
-    - report["label_llm"]
-    - report["credibility_llm"]
-    - report["trust"]["risk_level_llm"]
-    - report["trust"]["risk_signals"] (extended)
-    - report["fusion_llm"], report["llm_explanation"], etc.
-
-This file exposes helpers that make those LLM-enhanced fields the
-*default view* for other backend modules:
-
-    - get_effective_label(report)
-    - get_effective_credibility(report)
-    - get_effective_risk_profile(report)
-
-So consumers (explain.py, fusion.py, UI) can treat LLM as “mandatory”
-for decisions when available, while still working if LLM is disabled.
+Refactored for "Brand Intelligence" update:
+- Splits Legitimacy (Scam Risk) from Health Advisories.
+- Computes sophisticated Model Confidence.
+- Provides Catalog-aware scoring.
 """
 
 from __future__ import annotations
-
 from typing import Any, Dict, List, Tuple, Optional
 import re
 
+# ---------------------------------------------------------------------
+# 1) Keywords & Signals
+# ---------------------------------------------------------------------
 
-# ---------------------------------------------------------------------
-# 1) Label prediction (simple heuristics for now)
-# ---------------------------------------------------------------------
-RISKY_KEYWORDS = [
+# Triggers for SCAM / LEGITIMACY risk
+SCAM_KEYWORDS = [
     "win cash", "winner", "congratulations", "earn money fast", "get rich quick",
     "double your money", "crypto scheme", "guaranteed returns",
     "lottery", "jackpot", "free iphone", "free phone",
+    "risk free", "no risk", "investment opportunity"
+]
+
+# Triggers for HEALTH ADVISORIES (not necessarily scams)
+HEALTH_KEYWORDS = [
+    "caffeine", "energy drink", "supplement", "weight loss", "diet pill",
+    "cure", "remedy", "detox", "fat burner", "testosterone",
+    "not for children", "pregnant", "consult a doctor"
 ]
 
 PROMO_KEYWORDS = [
@@ -57,12 +36,12 @@ PROMO_KEYWORDS = [
     "buy now", "shop now", "order now", "flash sale",
 ]
 
-
-def _locate_risky_spans(text_lower: str, keywords: List[str], kind: str) -> List[Dict[str, Any]]:
-    """
-    Locate start/end indices of risky phrases in text.
-    """
+def _locate_spans(text_lower: str, keywords: List[str], kind: str, category_override: str = None) -> List[Dict[str, Any]]:
+    """Locate start/end indices of phrases."""
     spans = []
+    if not text_lower:
+        return spans
+        
     for kw in keywords:
         start = 0
         while True:
@@ -74,131 +53,216 @@ def _locate_risky_spans(text_lower: str, keywords: List[str], kind: str) -> List
                 "text": kw,
                 "start": idx,
                 "end": idx + len(kw),
-                "reason": f"Contains trigger phrase '{kw}'",
-                "category": "urgency" if kind == "risky_phrase" else "other" 
+                "reason": f"Contains phrase '{kw}'",
+                "category": category_override or ("urgency" if kind == "risky_phrase" else "other")
             })
             start = idx + len(kw)
     return spans
 
-def _contains_any(text_lower: str, phrases: List[str]) -> bool:
-    return any(p in text_lower for p in phrases)
 
+# ---------------------------------------------------------------------
+# 2) Label Prediction (Scam Focus)
+# ---------------------------------------------------------------------
 
-def predict_label(text: str) -> Tuple[str, float]:
+def predict_scam_label(text: str) -> Tuple[str, float]:
     """
-    Very lightweight label classifier.
-
-    Returns:
-        label: one of ["scam_like", "risky_promo", "promotion", "generic"]
-        confidence: float in [0, 1]
+    Predicts basic label based on SCAM signals only.
+    Does NOT flag health terms as risky.
     """
     if not text:
         return "generic", 0.3
 
     t = text.lower()
 
-    # Strongly scam-like patterns
-    if _contains_any(t, RISKY_KEYWORDS):
-        return "scam_like", 0.9
+    # Scam patterns
+    if any(k in t for k in SCAM_KEYWORDS):
+        return "scam_like", 0.85
 
-    # Suspiciously aggressive promo patterns
+    # Aggressive promo patterns
     risky_triggers = 0
-    if "100% free" in t or "free money" in t:
-        risky_triggers += 1
-    if "no risk" in t or "guaranteed" in t:
-        risky_triggers += 1
+    if "100% free" in t or "free money" in t: risky_triggers += 1
     if re.search(r"\b\d{2,}\s*% off\b", t):
-        # Very large discounts can be suspicious
-        risky_triggers += 1
+        # Check for 90%+ off or similar unrealistic
+        if "90%" in t or "95%" in t or "100%" in t:
+            risky_triggers += 1
 
     if risky_triggers >= 2:
-        return "risky_promo", 0.8
+        return "risky_promo", 0.75
 
-    # Normal promotion / sponsored ad
-    if _contains_any(t, PROMO_KEYWORDS):
+    # Normal promo
+    if any(k in t for k in PROMO_KEYWORDS):
         return "promotion", 0.7
 
-    # fallback
     return "generic", 0.5
 
 
 # ---------------------------------------------------------------------
-# 2) Credibility / trust score
+# 3) Health Advisory Detection
 # ---------------------------------------------------------------------
-def compute_credibility_score(
-    base_conf: float,
-    entity_reputation: float = 0.5,
-    sentiment_score: float = 0.0,
-    image_text_sim: float = 0.0,
-    strong_phrases: Optional[List[str]] = None,
-    has_clear_brand: Optional[bool] = None,
+
+def locate_health_advisories(text: str) -> List[str]:
+    """Return list of human-readable health warnings based on keywords."""
+    if not text:
+        return []
+    
+    t = text.lower()
+    advisories = []
+    
+    if "caffeine" in t or "energy" in t:
+        # Refine: only if 'high caffeine' or 'energy drink' context? 
+        # For now, simplistic map
+        if "high caffeine" in t: advisories.append("High Caffeine Content")
+        elif "energy drink" in t: advisories.append("Health Advisory: Energy Drink")
+        
+    if "supplement" in t or "diet" in t or "weight loss" in t:
+        advisories.append("Dietary Supplement Warning")
+        
+    if "crypto" in t or "bitcoin" in t:
+        # Financial warning, separate from scam but often related
+        advisories.append("Financial Risk Advisory")
+        
+    return list(set(advisories))
+
+
+# ---------------------------------------------------------------------
+# 4) Computed Confidence
+# ---------------------------------------------------------------------
+
+def compute_model_confidence(
+    vision_success: bool,
+    ocr_quality_score: float, # inferred from logic (len > 50?)
+    catalog_match: bool,
+    image_text_sim: Optional[float]
 ) -> float:
     """
-    Compute a single trust / credibility score in [0, 100].
-
-    Inputs:
-        base_conf:         model confidence for the label (0..1)
-        entity_reputation: heuristic 0..1 (0.5 = unknown brand, 1.0 = very reputable)
-        sentiment_score:   -1..+1 from NLP
-        image_text_sim:    0..1 similarity between vision & text
-        strong_phrases:    list of urgency / strong-sell phrases from NLP
-        has_clear_brand:   whether we detected a reasonable brand (NLP or vision)
-
-    Strategy:
-        Start from a weighted average and then add penalties/bonuses
-        based on aggressive selling and missing brand.
+    Compute explicit confidence score (0.0 - 1.0).
+    Removing the default 0.5 placeholder.
     """
-    if strong_phrases is None:
-        strong_phrases = []
-
-    # Clamp helper
-    def clip01(x: float) -> float:
-        return max(0.0, min(1.0, x))
-
-    base_conf = clip01(float(base_conf))
-    entity_reputation = clip01(float(entity_reputation))
-    image_text_sim = clip01(float(image_text_sim))
-
-    # Normalize sentiment magnitude (we prefer more neutral or mildly positive)
-    sent_mag = abs(float(sentiment_score))
-    # 1.0 when very neutral, 0.0 when extremely pos/neg
-    sentiment_stability = 1.0 - min(sent_mag, 1.0)
-
-    # Base score as weighted sum
-    score = (
-        0.45 * base_conf +
-        0.20 * image_text_sim +
-        0.20 * entity_reputation +
-        0.15 * sentiment_stability
-    )  # 0..1
-
-    # Penalties for very aggressive marketing language
-    n_strong = len(strong_phrases)
-    if n_strong >= 6:
-        score -= 0.20
-    elif n_strong >= 3:
-        score -= 0.10
-
-    # Penalty if there is no clear brand
-    if has_clear_brand is False:
-        score -= 0.10
-    elif has_clear_brand is True:
-        score += 0.05  # a clear brand is slightly reassuring
-
-    score = clip01(score)
-    return round(score * 100.0, 2)
+    score = 0.0
+    
+    # Baseline: Did we get anything?
+    if ocr_quality_score > 0 or vision_success:
+        score += 0.4
+    
+    # Catalog match is strong ground truth
+    if catalog_match:
+        score += 0.35
+        
+    # High quality OCR
+    if ocr_quality_score > 0.8:
+        score += 0.15
+        
+    # Consistency check (Similarity)
+    if image_text_sim is not None:
+        if image_text_sim > 0.2: 
+            score += 0.1
+    else:
+        # If sim module is offline, don't penalize too much if we have catalog
+        if catalog_match:
+            score += 0.1
+            
+    return min(0.99, max(0.1, score))
 
 
 # ---------------------------------------------------------------------
-# 3) Full report builder
+# 5) Legitimacy Scoring (0-100)
 # ---------------------------------------------------------------------
+
+def compute_legitimacy_score(
+    scam_label: str,
+    catalog_trust: Optional[str], # 'high', 'medium', 'low', None
+    domain_trust: str, # 'trusted', 'neutral', 'suspicious'
+    sentiment_score: float,
+    urgency_count: int
+) -> float:
+    """
+    Score targeting SCAM RISK only. Health issues do NOT lower this score.
+    High score (100) = Very Legitimate / Safe.
+    Low score (0) = Scam.
+    """
+    # 1. Base Score
+    score = 50.0 # Neutral start
+    
+    # 2. Catalog Signal (Strongest)
+    if catalog_trust == 'high':
+        score = 90.0
+    elif catalog_trust == 'medium':
+        score = 75.0
+    elif catalog_trust == 'low':
+        score = 30.0
+        
+    # 3. Label Impact (if no catalog override)
+    if not catalog_trust or catalog_trust == 'medium':
+        if scam_label == "scam_like":
+            score = min(score, 30.0)
+            score -= 20
+        elif scam_label == "risky_promo":
+            score = min(score, 60.0)
+            score -= 10
+        elif scam_label == "promotion":
+            score += 5
+            
+    # 4. Domain Trust (External)
+    # If explicit high trust in brand/catalog, ignore minor domain flags (e.g. social media redirect)
+    # or reduce penalty significantly.
+    domain_penalty = 40
+    if catalog_trust == 'high':
+        domain_penalty = 0 # Known brand is trusted regardless of where it is hosted (usually)
+    elif catalog_trust == 'medium':
+        domain_penalty = 10
+        
+    if domain_trust == 'suspicious':
+        score -= domain_penalty
+    elif domain_trust == 'trusted':
+        score += 10
+        
+    # 5. Urgency Penalties
+    if urgency_count > 2:
+        score -= 10
+    if urgency_count > 5:
+        score -= 15
+        
+    # 6. Sentiment (Minor bonus for positive/neutral, penalty for extreme negative?)
+    # Ignored for now as often irrelevant to legitimacy (scams are super positive).
+    
+    return max(0.0, min(100.0, score))
+
+
+# ---------------------------------------------------------------------
+# 6) Helpers
+# ---------------------------------------------------------------------
+
+def extract_evidence_spans(text: str) -> Tuple[List[Dict], List[str]]:
+    """Return detailed spans and subcategories list."""
+    t = text.lower()
+    spans = []
+    subcats = []
+    
+    # Scam Phrases
+    s_spans = _locate_spans(t, SCAM_KEYWORDS, "risky_phrase", "scam_risk")
+    spans.extend(s_spans)
+    if s_spans: subcats.append("scam_risk")
+    
+    # Health Keywords
+    h_spans = _locate_spans(t, HEALTH_KEYWORDS, "advisory_phrase", "health_risk")
+    # We locate them for highlighting, but maybe not 'risky_phrase' kind?
+    # Keeping them helps UI highlight source of advisory.
+    spans.extend(h_spans)
+    if h_spans: subcats.append("health_risk")
+    
+    return spans, list(set(subcats))
+
+
+# ---------------------------------------------------------------------
+# 7) Legacy & Report Building (Restored)
+# ---------------------------------------------------------------------
+
 def _extract_basic_product_info(
     nlp_res: Dict[str, Any],
     explanation: Dict[str, Any],
 ) -> Dict[str, Any]:
     """
     Combine product/brand/category from NLP + explanation.
-    Explanation may already infer product_name / brand_name / category.
     """
     entities = nlp_res.get("entities") or []
     brand_entities = [e["text"] for e in entities if e.get("type") == "BRAND"]
@@ -240,12 +304,6 @@ def _build_risk_signals(
 ) -> List[str]:
     """
     Heuristic scam / risk signals based on NLP and trust score.
-
-    Note:
-        LLM may later extend these risk signals and risk level
-        via llm.maybe_enhance_with_llm(report), which adds fields
-        under report["trust"]. This function only provides the
-        classic, non-LLM signals.
     """
     signals: List[str] = []
     text = nlp_res.get("raw_text") or ""
@@ -295,15 +353,6 @@ def build_full_report(
 ) -> Dict[str, Any]:
     """
     Combine core pieces into a final report JSON.
-
-    Note:
-        - Vision info (brand/category/visual description) is already
-          baked into `nlp_res` because main.py feeds combined text
-          (OCR + caption + vision description) into analyze_text().
-        - Image quality (blur) is added later in main.py (as image_quality)
-          and shown in the UI.
-        - LLM-based enhancements (llm_summary, label_llm, credibility_llm,
-          trust.risk_level_llm, etc.) are added later by llm.maybe_enhance_with_llm().
     """
     # Base fields
     report: Dict[str, Any] = {
@@ -348,8 +397,9 @@ def build_full_report(
     # 1. Locate spans in OCR/NLP text
     raw_text = (nlp_res.get("raw_text") or "").lower()
     
-    # Urgency / suspicious phrases
-    urgency_spans = _locate_risky_spans(raw_text, RISKY_KEYWORDS + PROMO_KEYWORDS, "risky_phrase")
+    # Urgency / suspicious phrases (SCAM focused)
+    # Using new helper
+    urgency_spans = _locate_spans(raw_text, SCAM_KEYWORDS + PROMO_KEYWORDS, "risky_phrase")
     evidence_spans.extend(urgency_spans)
     if urgency_spans:
         subcategories.append("urgency")
@@ -358,11 +408,11 @@ def build_full_report(
     if label == "scam_like":
         subcategories.append("scam-suspected")
     
-    # Health/Financial/Crypto heuristics (simple keyword check for now)
+    # Health/Financial/Crypto heuristics
     if any(w in raw_text for w in ["cure", "remedy", "doctor", "weight loss"]):
         subcategories.append("health-claim")
     if any(w in raw_text for w in ["bitcoin", "crypto", "investment", "double"]):
-        subcategories.append("financial-promise") # or crypto
+        subcategories.append("financial-promise")
         if "crypto" in raw_text:
             subcategories.append("crypto")
 
@@ -389,14 +439,12 @@ def build_full_report(
 
 
 # ---------------------------------------------------------------------
-# 4) HYBRID OPTION C HELPERS (LLM-aware classification view)
+# 8) HYBRID OPTION C HELPERS (LLM-aware classification view)
 # ---------------------------------------------------------------------
 
 def _infer_risk_level_from_classic(label: str, credibility: float) -> str:
     """
     Infer a coarse risk level from classic label + credibility.
-
-    Used when LLM did not provide risk_level_llm.
     """
     try:
         cred = float(credibility)
@@ -405,28 +453,18 @@ def _infer_risk_level_from_classic(label: str, credibility: float) -> str:
 
     label = (label or "").lower()
 
-    # Very low credibility or explicit scam-like label => high
     if label == "scam_like" or cred < 40:
         return "high"
 
-    # Risky promo or low-medium credibility => medium
     if label in {"risky_promo", "promotion"} or cred < 70:
         return "medium"
 
-    # Otherwise treat as low
     return "low"
 
 
 def get_effective_label(report: Dict[str, Any]) -> str:
     """
     Return the best available classification label for this ad.
-
-    Priority:
-        1) LLM label if present: report["label_llm"]
-        2) Classic label: report["label"]
-
-    Consumers (UI, explain.py, etc.) should use this helper when they
-    want the final label that includes LLM assistance.
     """
     if not isinstance(report, dict):
         return "unknown"
@@ -445,13 +483,6 @@ def get_effective_label(report: Dict[str, Any]) -> str:
 def get_effective_credibility(report: Dict[str, Any]) -> float:
     """
     Return the best available credibility score in [0, 100].
-
-    Priority:
-        1) LLM credibility if present: report["credibility_llm"]
-        2) Classic credibility: report["credibility"]
-
-    If both exist, we slightly favor the LLM but do NOT discard the
-    classic score: we take an average biased towards the LLM.
     """
     if not isinstance(report, dict):
         return 0.0
@@ -471,7 +502,6 @@ def get_effective_credibility(report: Dict[str, Any]) -> float:
     c_llm = _to_float(cred_llm)
 
     if c_llm is not None and c_classic is not None:
-        # Weighted average: 70% LLM, 30% classic
         return round(0.7 * c_llm + 0.3 * c_classic, 2)
     if c_llm is not None:
         return round(c_llm, 2)
@@ -483,26 +513,7 @@ def get_effective_credibility(report: Dict[str, Any]) -> float:
 
 def get_effective_risk_profile(report: Dict[str, Any]) -> Dict[str, Any]:
     """
-    Return a unified risk profile for the ad, merging classic classifier
-    outputs with LLM-based trust reasoning.
-
-    Output structure:
-    {
-        "label_classic": "...",
-        "label_llm": "...",
-        "label_final": "...",            # what to show as main label
-        "credibility_classic": float,
-        "credibility_llm": float or None,
-        "credibility_final": float,      # what to show as main score
-        "risk_level_llm": "low/medium/high" or None,
-        "risk_level_inferred": "low/medium/high",
-        "risk_level_final": "low/medium/high",
-        "risk_signals": [...],           # merged + deduped risk signals
-        "reasons": [...],                # trust reasons including risk_signals
-    }
-
-    This is how Hybrid Option C makes LLM help with label detection
-    and risk perception, while still respecting your classic pipeline.
+    Return a unified risk profile for the ad.
     """
     if not isinstance(report, dict):
         return {
@@ -525,7 +536,6 @@ def get_effective_risk_profile(report: Dict[str, Any]) -> Dict[str, Any]:
     cred_classic = report.get("credibility")
     cred_llm = report.get("credibility_llm")
 
-    # Normalize credibility
     try:
         cred_classic_f = float(cred_classic) if cred_classic is not None else 0.0
     except Exception:
@@ -548,13 +558,9 @@ def get_effective_risk_profile(report: Dict[str, Any]) -> Dict[str, Any]:
     else:
         risk_level_llm = None
 
-    # Inferred risk level from classic info
     risk_level_inferred = _infer_risk_level_from_classic(label_classic, cred_classic_f)
-
-    # Choose final risk level: prefer LLM when available
     risk_level_final = risk_level_llm or risk_level_inferred
 
-    # Merge risk_signals and reasons (classic + LLM-extended)
     reasons = trust.get("reasons") or []
     if not isinstance(reasons, list):
         reasons = []
@@ -563,7 +569,6 @@ def get_effective_risk_profile(report: Dict[str, Any]) -> Dict[str, Any]:
     if not isinstance(risk_signals, list):
         risk_signals = []
 
-    # Deduplicate risk_signals
     seen = set()
     risk_signals_dedup: List[str] = []
     for s in risk_signals:
@@ -575,7 +580,6 @@ def get_effective_risk_profile(report: Dict[str, Any]) -> Dict[str, Any]:
         seen.add(key)
         risk_signals_dedup.append(key)
 
-    # Ensure all risk_signals are present in reasons (for UI)
     all_reasons = list(reasons)
     existing = {str(r) for r in reasons}
     for s in risk_signals_dedup:
@@ -596,7 +600,6 @@ def get_effective_risk_profile(report: Dict[str, Any]) -> Dict[str, Any]:
         "risk_signals": risk_signals_dedup,
         "reasons": all_reasons,
     }
-    # backend/classifier.py
 
 def get_final_risk_profile(report: Dict[str, Any]) -> Dict[str, Any]:
     """
@@ -604,10 +607,9 @@ def get_final_risk_profile(report: Dict[str, Any]) -> Dict[str, Any]:
     """
     label_classic = report.get("label", "generic").lower()
     label_llm = report.get("label_llm", label_classic).lower()
-    credibility_classic = report.get("credibility", 50.0)  # Default to 50 if not available
+    credibility_classic = report.get("credibility", 50.0)
     credibility_llm = report.get("credibility_llm", credibility_classic)
     
-    # Risk level determination: infer from classic or LLM data
     if "scam" in label_llm or "scam_like" in label_classic:
         risk_level = "high"
     elif "risky" in label_llm or "promotion" in label_classic:
@@ -615,7 +617,6 @@ def get_final_risk_profile(report: Dict[str, Any]) -> Dict[str, Any]:
     else:
         risk_level = "low"
     
-    # Combine the credibility scores (favor LLM but average them)
     credibility = (credibility_classic + credibility_llm) / 2.0
     
     return {

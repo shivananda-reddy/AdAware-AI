@@ -54,9 +54,26 @@ from openai import OpenAI
 MODEL = os.getenv("AD_AWARE_VISION_MODEL", "gpt-4o")
 
 
-def _client() -> OpenAI:
-    """Return OpenAI client. Reads OPENAI_API_KEY from environment."""
-    return OpenAI()
+
+# Global client singleton
+_CLIENT = None
+
+def _client() -> Optional[OpenAI]:
+    """Return singleton OpenAI client. Reads OPENAI_API_KEY from environment."""
+    global _CLIENT
+    if _CLIENT:
+        return _CLIENT
+    
+    api_key = os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        return None
+        
+    _CLIENT = OpenAI(
+        api_key=api_key,
+        max_retries=2,
+        timeout=20.0
+    )
+    return _CLIENT
 
 
 def _pil_to_data_url(pil_image) -> str:
@@ -162,6 +179,17 @@ Rules:
 """
 
         client = _client()
+        if not client:
+             return {
+                "visual_description": "",
+                "brand": "",
+                "product_name": "",
+                "category": "",
+                "objects": [],
+                "logo_detected": False,
+                "confidence": 0.0,
+                "vision_error": "Could not initialize OpenAI client (check OPENAI_API_KEY)",
+            }
 
         # Use the new OpenAI Responses API format
         resp = client.responses.create(

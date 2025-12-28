@@ -11,6 +11,9 @@ def get_domain_from_url(url: str) -> Optional[str]:
     try:
         # handle cases without protocol
         if not url.startswith("http"):
+            # Special case for internal/extension contexts
+            if url in ["WebDashboard", "localhost", "127.0.0.1"] or "extension" in url:
+                return url
             url = "http://" + url
         parsed = urllib.parse.urlparse(url)
         return parsed.netloc
@@ -30,6 +33,9 @@ def check_reputation(url: Optional[str], page_origin: Optional[str] = None) -> S
     rep.domain = domain
     
     if target_url.lower().startswith("https"):
+        rep.https = True
+    elif domain in ["WebDashboard", "localhost", "127.0.0.1"]:
+        # Internal tools are safe
         rep.https = True
     else:
         rep.flags.append("Not HTTPS")

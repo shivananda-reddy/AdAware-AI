@@ -111,12 +111,10 @@ def extract_text_with_conf(image: Image.Image, languages: str = "eng") -> Tuple[
         except Exception:
             pass
 
-    # Debug output (very useful)
-    print("\n[OCR DEBUG]")
-    print("Avg confidence:", round(avg_conf, 2))
-    print("Extracted text:", repr(ocr_text[:300]))
-    if len(ocr_text) > 300:
-        print("[Text truncated]")
+    # Debug output (disabled for production noise reduction)
+    # print("\n[OCR DEBUG]")
+    # print("Avg confidence:", round(avg_conf, 2))
+    # print("Extracted text:", repr(ocr_text[:300]))
 
     return ocr_text, avg_conf
 

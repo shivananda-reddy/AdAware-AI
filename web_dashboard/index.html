@@ -1,130 +1,121 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 
 <head>
-  <meta charset="UTF-8">
-  <title>AdAware AI Dashboard</title>
+  <meta charset="utf-8" />
+  <title>AdAware AI – Dashboard</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="styles.css">
 </head>
 
 <body>
-  <div class="dashboard-container">
-    <header>
-      <h1>AdAware AI <span class="badge">Dashboard</span></h1>
-      <nav>
-        <button id="btn-analyze-tab" class="active">Analyze</button>
-        <button id="btn-history-tab">History</button>
-        <button id="btn-stats-tab">Stats</button>
-      </nav>
+  <div class="page">
+    <!-- HEADER -->
+    <header class="top-bar">
+      <div>
+        <div class="app-title"><span>AdAware</span> AI</div>
+        <div class="app-subtitle">Ad trust analysis • Product intelligence • Risk visibility</div>
+      </div>
+      <div id="backendStatus" class="status-pill">
+        <span class="status-dot">●</span>
+        Checking backend…
+      </div>
     </header>
 
-    <!-- ANALYZE VIEW -->
-    <main id="view-analyze">
-      <div class="grid-layout">
-        <div class="glass-card input-section">
-          <h2>Analyze Ad</h2>
-          <div class="upload-area" id="drop-zone">
-            <p>Drag & Drop Image or Click to Upload</p>
-            <input type="file" id="file-input" hidden accept="image/*">
-          </div>
-          <div class="or-divider">OR</div>
-          <input type="text" id="url-input" placeholder="Paste Image URL">
-          <textarea id="caption-input" placeholder="Optional caption context..."></textarea>
-
-          <div class="settings">
-            <label><input type="checkbox" id="chk-use-llm"> Use LLM (Slower but detailed)</label>
-            <label><input type="checkbox" id="chk-consent"> Allow Data Usage</label>
-          </div>
-
-          <button id="btn-analyze" class="btn-primary">Analyze Risk</button>
-          <div id="backend-status" class="status-indicator">Backend: Checking...</div>
-        </div>
-
-        <div class="glass-card result-section" id="result-container" style="display:none">
-          <div class="result-header">
-            <span id="res-label" class="label-badge">Analyzing...</span>
-            <span id="res-score" class="score-text"></span>
-          </div>
-          <div id="res-content">
-            <!-- Dynamic result content -->
+    <!-- INPUT + PREVIEW -->
+    <main class="layout">
+      <!-- Left: Input card -->
+      <section class="card">
+        <div class="card-header">
+          <div class="card-title">
+            Analyze New Ad
+            <span class="card-title-badge">Dashboard</span>
           </div>
         </div>
-      </div>
+
+        <div class="input-section">
+          <!-- File input -->
+          <label class="file-drop">
+            <input type="file" id="imageFile" accept="image/*" />
+            <div class="file-drop-main">Click or drag an ad image</div>
+            <div class="file-drop-sub">JPEG, PNG, WEBP · Processed locally by your backend</div>
+          </label>
+
+          <div class="or-divider">
+            <div class="or-divider-line"></div>
+            <span>OR</span>
+            <div class="or-divider-line"></div>
+          </div>
+
+          <!-- URL input -->
+          <div>
+            <div class="field-label">Ad image URL</div>
+            <input id="imageUrl" type="text" class="text-input" placeholder="https://example.com/your-ad-image.jpg" />
+          </div>
+
+          <!-- Footer controls -->
+          <div class="input-footer">
+            <label class="checkbox-row">
+              <input type="checkbox" id="useLlm" checked />
+              <span>Enable LLM-enhanced summary</span>
+            </label>
+
+            <button id="btnAnalyze" type="button" class="btn-primary">
+              <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                <polygon points="5 3 19 12 5 21 5 3"></polygon>
+              </svg>
+              Run Analysis
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <!-- Right: Preview card -->
+      <section class="card">
+        <div class="card-header">
+          <div class="card-title">
+            Visual Preview
+          </div>
+        </div>
+        <div id="previewInner" class="preview-wrap">
+          <div class="preview-placeholder">No image selected yet</div>
+        </div>
+      </section>
     </main>
 
-    <!-- HISTORY VIEW -->
-    <main id="view-history" style="display:none">
-      <div class="history-layout">
-        <div class="glass-card history-list-section">
-          <h2>Analysis History</h2>
-          <div class="filters">
-            <select id="filter-label">
-              <option value="">All Labels</option>
-              <option value="high-risk">High Risk</option>
-              <option value="scam-suspected">Scam Suspected</option>
-              <option value="low-risk">Low Risk</option>
-              <option value="safe">Safe</option>
-            </select>
-            <button id="btn-refresh-history">Refresh</button>
-          </div>
-          <table class="history-table">
-            <thead>
-              <tr>
-                <th>Time</th>
-                <th>Domain</th>
-                <th>Label</th>
-                <th>Score</th>
-              </tr>
-            </thead>
-            <tbody id="history-tbody">
-              <tr>
-                <td colspan="4">Loading...</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-
-        <div class="glass-card details-pane" id="details-pane">
-          <h3>Details</h3>
-          <p class="placeholder-text">Click a row to see details.</p>
-          <div id="details-content" style="display:none">
-            <div class="detail-row"><strong>Request ID:</strong> <span id="det-id"></span></div>
-            <div class="detail-row"><strong>Label:</strong> <span id="det-label" class="label-badge"></span></div>
-            <div class="detail-row"><strong>Risk Score:</strong> <span id="det-score"></span></div>
-            <div class="detail-row"><strong>Explanation:</strong>
-              <p id="det-explanation"></p>
-            </div>
-            <div class="detail-row"><strong>Evidence (Why Flagged):</strong>
-              <ul id="det-evidence"></ul>
-            </div>
-            <div class="detail-row"><strong>OCR Text:</strong>
-              <pre id="det-ocr"></pre>
-            </div>
-          </div>
-        </div>
+    <!-- RESULTS -->
+    <section id="resultArea" class="results-card">
+      <div class="results-placeholder">
+        Run an analysis to see AI summary, trust score, and product details here.
       </div>
-    </main>
+    </section>
 
-    <!-- STATS VIEW -->
-    <main id="view-stats" style="display:none">
-      <div class="stats-grid">
-        <div class="glass-card stat-box">
-          <h3>Total Analyses</h3>
-          <div class="big-number" id="stat-total">-</div>
+    <!-- HISTORY -->
+    <section id="historySection" class="card" style="margin-top: 20px;">
+      <div class="card-header">
+        <div class="card-title">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+            stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="10"></circle>
+            <polyline points="12 6 12 12 16 14"></polyline>
+          </svg>
+          Recent Analysis History
         </div>
-        <div class="glass-card stat-box">
-          <h3>Label Distribution</h3>
-          <ul id="stat-labels-list"></ul>
-        </div>
-        <div class="glass-card stat-box">
-          <h3>Feedback Accuracy</h3>
-          <div class="big-number" id="stat-accuracy">-</div>
-          <small>Based on user feedback</small>
-        </div>
+        <button id="btnClearHistory" class="btn-subtle"
+          style="font-size: 0.75rem; padding: 4px 8px; background: transparent; border: 1px solid var(--border-subtle); color: var(--text-muted); cursor: pointer;">Clear</button>
       </div>
-    </main>
-
+      <div id="historyList" class="history-grid"
+        style="display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 12px; margin-top: 12px;">
+        <!-- History items -->
+        <div style="color: var(--text-muted); font-size: 0.85rem; padding: 10px;">No history yet.</div>
+      </div>
+    </section>
   </div>
+
   <script src="script.js"></script>
 </body>
 

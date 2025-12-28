@@ -126,47 +126,80 @@ PRODUCT_KEYWORDS = {
 # ---------------------------------------------------------------------
 # Transformers integration
 # ---------------------------------------------------------------------
+from backend.core.config import ADAWARE_DISABLE_NLP, ADAWARE_HF_OFFLINE
+
 _TRANSFORMERS_AVAILABLE = False
 _sentiment_pipe = None
 _ner_pipe = None
+_NLP_LOAD_FAILED = False
 
 try:
-    from transformers import pipeline  # type: ignore
+    if not ADAWARE_DISABLE_NLP:
+        from transformers import pipeline  # type: ignore
+        _TRANSFORMERS_AVAILABLE = True
+        LOG.info("Transformers found. NLP enabled.")
+    else:
+        LOG.info("NLP disabled by config.")
 
-    _TRANSFORMERS_AVAILABLE = True
-    LOG.info("Transformers found, will use advanced NLP models.")
 
 except Exception as e:  # pragma: no cover
     LOG.warning("Transformers not available, using fallback NLP. Error: %s", e)
     _TRANSFORMERS_AVAILABLE = False
 
 
+
 def _get_sentiment_pipe():
-    global _sentiment_pipe
-    if _sentiment_pipe is None and _TRANSFORMERS_AVAILABLE:
+    global _sentiment_pipe, _NLP_LOAD_FAILED
+    if ADAWARE_DISABLE_NLP or _NLP_LOAD_FAILED:
+        return None
+    
+    if _sentiment_pipe:
+        return _sentiment_pipe
+        
+    if _TRANSFORMERS_AVAILABLE:
         try:
+            LOG.info("Loading sentiment model...")
+            kwargs = {"local_files_only": True} if ADAWARE_HF_OFFLINE else {}
             _sentiment_pipe = pipeline(
                 "sentiment-analysis",
                 model="distilbert-base-uncased-finetuned-sst-2-english",
+                model_kwargs=kwargs
             )
             LOG.info("Loaded sentiment model: distilbert-base-uncased-finetuned-sst-2-english")
         except Exception as e:
-            LOG.error("Failed to load sentiment model, falling back: %s", e)
+            LOG.warning(f"Failed to load sentiment model (Offline={ADAWARE_HF_OFFLINE}): {e}")
+            _NLP_LOAD_FAILED = True
+            
     return _sentiment_pipe
 
 
 def _get_ner_pipe():
-    global _ner_pipe
-    if _ner_pipe is None and _TRANSFORMERS_AVAILABLE:
+    global _ner_pipe, _NLP_LOAD_FAILED
+    if ADAWARE_DISABLE_NLP or _NLP_LOAD_FAILED:
+        return None
+        
+    if _ner_pipe:
+        return _ner_pipe
+
+    if _TRANSFORMERS_AVAILABLE:
         try:
+            LOG.info("Loading NER model...")
+            kwargs = {"local_files_only": True} if ADAWARE_HF_OFFLINE else {}
             _ner_pipe = pipeline(
                 "ner",
                 model="dslim/bert-base-NER",
                 aggregation_strategy="simple",
+                model_kwargs=kwargs
             )
             LOG.info("Loaded NER model: dslim/bert-base-NER")
         except Exception as e:
-            LOG.error("Failed to load NER model, falling back: %s", e)
+            LOG.warning(f"Failed to load NER model (Offline={ADAWARE_HF_OFFLINE}): {e}")
+            # Don't fail global NLP just for NER, but mark pipe as None
+            # _NLP_LOAD_FAILED = True  <-- actually maybe better to fail individually per pipe?
+            # For simplicity, if one fails due to network, likely all fail. But let's be robust.
+            # We'll just return None here.
+            pass
+            
     return _ner_pipe
 
 

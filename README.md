@@ -60,7 +60,36 @@ AdAware-AI/
 ### 1. Prerequisites
 - **Python 3.10+**
 - **Tesseract OCR** installed and added to system PATH.
-- **OpenAI API Key** (optional, recommended for full capabilities).
+
+## 🛡️ Offline Mode / Hugging Face Support
+
+If Hugging Face is blocked or facing DNS issues (NameResolutionError), you can enable **Offline Mode**. This prevents the backend from crashing or spamming retries.
+
+### Enable Offline Mode
+Set the following environment variable in `.env`:
+```bash
+ADAWARE_HF_OFFLINE=true
+```
+This forces the backend to use only locally cached models. If models are missing, it will use rule-based fallbacks (Regex/Heuristics) without crashing.
+
+### Fully Disable NLP or CLIP
+If you want to skip model loading entirely (e.g. for speed or no GPU):
+```bash
+ADAWARE_DISABLE_NLP=true
+ADAWARE_DISABLE_CLIP=true
+```
+
+## 🔑 OpenAI Key Setup (Crucial)
+
+
+To enable LLM and Vision features, you **must** set your OpenAI API key in the backend environment.
+1. Create a `.env` file in `backend/` or set the variable in your shell:
+   ```bash
+   export OPENAI_API_KEY="sk-..."
+   ```
+2. **Restart the backend** after setting the key.
+
+> **⚠️ IMPORTANT:** Do NOT open `https://api.openai.com/v1/*` URLs in your browser. They will show a "Missing bearer authentication" error. This is expected behavior. The backend handles authentication securely.
 
 ### 2. Backend Setup
 1.  Clone the repository.

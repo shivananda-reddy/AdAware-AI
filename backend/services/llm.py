@@ -76,14 +76,29 @@ def _has_api_key() -> bool:
     return bool(os.getenv("OPENAI_API_KEY"))
 
 
+
+# Global client singleton
+_CLIENT = None
+
 def _get_client() -> Optional[AsyncOpenAI]:
+    global _CLIENT
+    if _CLIENT:
+        return _CLIENT
+
     if AsyncOpenAI is None:
         logger.warning("openai package not installed or AsyncOpenAI not available.")
         return None
+        
     api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
         return None
-    return AsyncOpenAI(api_key=api_key)
+        
+    _CLIENT = AsyncOpenAI(
+        api_key=api_key,
+        max_retries=2,
+        timeout=30.0
+    )
+    return _CLIENT
 
 
 def _build_context(report: Dict[str, Any]) -> Dict[str, Any]:
