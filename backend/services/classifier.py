@@ -136,13 +136,18 @@ def compute_model_confidence(
 ) -> float:
     """
     Compute explicit confidence score (0.0 - 1.0).
-    Removing the default 0.5 placeholder.
+    
+    Confidence represents how much evidence we have, not quality of evidence.
+    High confidence = we have multiple signals
+    Low confidence = we're missing key data
+    
+    Returns value in range [0.1, 0.95]
     """
     score = 0.0
     
     # Baseline: Did we get anything?
     if ocr_quality_score > 0 or vision_success:
-        score += 0.4
+        score += 0.3  # Reduced from 0.4 to make room for other signals
     
     # Catalog match is strong ground truth
     if catalog_match:
@@ -151,17 +156,23 @@ def compute_model_confidence(
     # High quality OCR
     if ocr_quality_score > 0.8:
         score += 0.15
+    elif ocr_quality_score > 0.5:
+        score += 0.10
         
     # Consistency check (Similarity)
+    # Don't penalize if unavailable, but bonus if available AND high
     if image_text_sim is not None:
-        if image_text_sim > 0.2: 
-            score += 0.1
+        if image_text_sim > 0.5:
+            score += 0.15
+        elif image_text_sim > 0.2: 
+            score += 0.10
+        # If very low (<0.2), don't add, but don't subtract
     else:
-        # If sim module is offline, don't penalize too much if we have catalog
+        # Similarity unavailable - give small bonus if we have catalog
         if catalog_match:
-            score += 0.1
+            score += 0.10
             
-    return min(0.99, max(0.1, score))
+    return min(0.95, max(0.15, score))
 
 
 # ---------------------------------------------------------------------
@@ -238,17 +249,17 @@ def extract_evidence_spans(text: str) -> Tuple[List[Dict], List[str]]:
     spans = []
     subcats = []
     
-    # Scam Phrases
-    s_spans = _locate_spans(t, SCAM_KEYWORDS, "risky_phrase", "scam_risk")
+    # Scam Phrases - map to valid RiskSubcategory enum values
+    s_spans = _locate_spans(t, SCAM_KEYWORDS, "risky_phrase", "urgency")
     spans.extend(s_spans)
-    if s_spans: subcats.append("scam_risk")
+    if s_spans: subcats.append("urgency")  # Changed from "scam_risk" to valid enum
     
-    # Health Keywords
-    h_spans = _locate_spans(t, HEALTH_KEYWORDS, "advisory_phrase", "health_risk")
+    # Health Keywords - map to valid RiskSubcategory enum values
+    h_spans = _locate_spans(t, HEALTH_KEYWORDS, "advisory_phrase", "health-claim")
     # We locate them for highlighting, but maybe not 'risky_phrase' kind?
     # Keeping them helps UI highlight source of advisory.
     spans.extend(h_spans)
-    if h_spans: subcats.append("health_risk")
+    if h_spans: subcats.append("health-claim")  # Changed from "health_risk" to valid enum
     
     return spans, list(set(subcats))
 

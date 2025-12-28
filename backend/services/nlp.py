@@ -165,9 +165,10 @@ def _get_sentiment_pipe():
                 model="distilbert-base-uncased-finetuned-sst-2-english",
                 model_kwargs=kwargs
             )
-            LOG.info("Loaded sentiment model: distilbert-base-uncased-finetuned-sst-2-english")
+            LOG.info("✓ Sentiment model loaded successfully")
         except Exception as e:
-            LOG.warning(f"Failed to load sentiment model (Offline={ADAWARE_HF_OFFLINE}): {e}")
+            LOG.warning(f"✗ Failed to load sentiment model (Offline={ADAWARE_HF_OFFLINE}): {e}")
+            LOG.info("Will use fallback heuristic sentiment analysis")
             _NLP_LOAD_FAILED = True
             
     return _sentiment_pipe
@@ -191,13 +192,11 @@ def _get_ner_pipe():
                 aggregation_strategy="simple",
                 model_kwargs=kwargs
             )
-            LOG.info("Loaded NER model: dslim/bert-base-NER")
+            LOG.info("✓ NER model loaded successfully")
         except Exception as e:
-            LOG.warning(f"Failed to load NER model (Offline={ADAWARE_HF_OFFLINE}): {e}")
-            # Don't fail global NLP just for NER, but mark pipe as None
-            # _NLP_LOAD_FAILED = True  <-- actually maybe better to fail individually per pipe?
-            # For simplicity, if one fails due to network, likely all fail. But let's be robust.
-            # We'll just return None here.
+            LOG.warning(f"✗ Failed to load NER model (Offline={ADAWARE_HF_OFFLINE}): {e}")
+            LOG.info("Will use fallback rule-based entity extraction")
+            # Don't fail global NLP, just this pipe
             pass
             
     return _ner_pipe

@@ -2,6 +2,7 @@
 
 const API_BASE = "http://127.0.0.1:8000";
 const ANALYZE_ENDPOINT = `${API_BASE}/analyze_hover`;
+const EXPORT_ENDPOINT = `${API_BASE}/api/v1/export_pdf`;
 
 // DOM references
 const backendStatusEl = document.getElementById("backendStatus");
@@ -9,8 +10,12 @@ const imageFileInput = document.getElementById("imageFile");
 const imageUrlInput = document.getElementById("imageUrl");
 const useLlmCheckbox = document.getElementById("useLlm");
 const btnAnalyze = document.getElementById("btnAnalyze");
+const btnDownloadPdf = document.getElementById("btnDownloadPdf");
 const previewInner = document.getElementById("previewInner");
 const resultArea = document.getElementById("resultArea");
+let lastReport = null;
+let lastImageUrl = null;
+let lastImageBase64 = null;
 
 // --- Optional: sync LLM toggle with extension popup/background (if running as extension) ---
 function hasChromeStorage() {
@@ -181,12 +186,16 @@ function renderReport(report) {
   // Price Logic: Honest Display
   let priceDisplay = "Not detected";
   let priceClass = "muted";
-  if (pinfo.detected_price && pinfo.detected_price !== "Not found") {
-    priceDisplay = `Detected: ${pinfo.detected_price}`;
+  let priceTooltip = "No price information found in image";
+  
+  if (pinfo.detected_price && pinfo.detected_price !== "Not found" && pinfo.detected_price !== "Not detected") {
+    priceDisplay = pinfo.detected_price;
     priceClass = "text-white";
-  } else if (pinfo.formatted_price) {
-    priceDisplay = `Estimated: ${pinfo.formatted_price}`;
+    priceTooltip = `Detected in image: ${pinfo.detected_price}`;
+  } else if (pinfo.formatted_price && pinfo.formatted_price !== "Not found") {
+    priceDisplay = `~${pinfo.formatted_price}`;
     priceClass = "text-yellow";
+    priceTooltip = `Estimated range from catalog: ${pinfo.formatted_price}`;
   }
 
   // 7. Trust & Risk signals
@@ -202,10 +211,16 @@ function renderReport(report) {
   // Handle Null/Unavailable explicitly
   let imgSimDisplay = "Unavailable";
   let imgSimClass = "muted";
+  let imgSimTooltip = "CLIP model not loaded";
 
   if (typeof report.image_text_similarity === "number") {
     imgSimDisplay = report.image_text_similarity.toFixed(2);
     imgSimClass = "text-white";
+    imgSimTooltip = `Similarity score: ${imgSimDisplay}`;
+  } else if (report.image_text_similarity === null) {
+    imgSimDisplay = "Unavailable";
+    imgSimClass = "muted";
+    imgSimTooltip = "Image-text similarity unavailable (CLIP model not loaded)";
   }
 
   const fusionScore = "N/A";
@@ -230,6 +245,9 @@ function renderReport(report) {
   const worthIt = "Unknown"; // Not in new AnalysisResult yet
   const worthReason = "";
   const ctaStrength = report.sentiment || "neutral";
+  
+  // Category source (not sent by backend currently, so leave undefined for optional display)
+  const category_source = undefined;
 
   // JSON pretty (escaped)
   const jsonPretty = escapeHtml(JSON.stringify(report, null, 2));
@@ -318,7 +336,7 @@ function renderReport(report) {
 
         <div class="metric-row">
           <span class="metric-label">Model confidence (computed)</span>
-          <span class="metric-value">${confModel}</span>
+          <span class="metric-value">${confModel}</ title="${imgSimTooltip}"span>
         </div>
         <div class="metric-row">
           <span class="metric-label">Image-text similarity</span>
@@ -354,11 +372,11 @@ function renderReport(report) {
         </div>
         <div class="metric-row">
           <span class="metric-label">Category</span>
-          <span class="metric-value">${escapeHtml(category)}</span>
+          <span class="metric-value">${escapeHtml(category)}${category !== "Unclassified" && category_source ? ` (${category_source})` : ""}</span>
         </div>
         <div class="metric-row">
           <span class="metric-label">Price</span>
-          <span class="metric-value ${priceClass}">${escapeHtml(priceDisplay)}</span>
+          <span class="metric-value ${priceClass}" title="${priceTooltip}">${escapeHtml(priceDisplay)}</span>
         </div>
         </div>
 
@@ -489,6 +507,9 @@ async function runAnalysis() {
 
     renderReport(report);
     saveHistory(report, imageUrl, imageBase64);
+    lastReport = report;
+    lastImageUrl = imageUrl;
+    lastImageBase64 = imageBase64;
   } catch (err) {
     console.error(err);
     if (resultArea) {
@@ -508,6 +529,12 @@ async function runAnalysis() {
 window.addEventListener("DOMContentLoaded", () => {
   checkBackend();
   loadHistory();
+
+  // Prevent accidental page navigation when dragging files or images onto the page
+  [document, window].forEach(el => {
+    el.addEventListener("dragover", (e) => e.preventDefault());
+    el.addEventListener("drop", (e) => e.preventDefault());
+  });
 
   if (imageFileInput) {
     imageFileInput.addEventListener("change", () => {
@@ -536,6 +563,12 @@ window.addEventListener("DOMContentLoaded", () => {
   if (btnAnalyze) {
     btnAnalyze.addEventListener("click", () => {
       runAnalysis();
+    });
+  }
+
+  if (btnDownloadPdf) {
+    btnDownloadPdf.addEventListener("click", () => {
+      downloadPdf();
     });
   }
 });
@@ -635,4 +668,49 @@ if (btnClearHistory) {
       loadHistory();
     }
   });
+}
+
+// ---------- PDF Export ----------
+async function downloadPdf() {
+  try {
+    if (!lastReport) {
+      alert("Run an analysis first, then export the PDF.");
+      return;
+    }
+
+    // Build payload using last analysis and image source
+    const payload = {
+      analysis: lastReport,
+      image_url: lastImageUrl || null,
+      image_base64: lastImageBase64 || null,
+      page_url: "WebDashboard",
+      use_llm: !!(useLlmCheckbox && useLlmCheckbox.checked),
+    };
+
+    const res = await fetch(EXPORT_ENDPOINT, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+
+    if (!res.ok) {
+      const txt = await res.text();
+      throw new Error(txt || `HTTP ${res.status}`);
+    }
+
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    const label = (lastReport.final_label || "report").replace(/\s+/g, "_");
+    const ts = (lastReport.timestamp || "").replace(/[:\s]/g, "_");
+    a.href = url;
+    a.download = `adaware_report_${label}_${ts}.pdf`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  } catch (err) {
+    console.error("PDF export failed:", err);
+    alert("PDF export failed. Ensure backend is running and reportlab is installed.");
+  }
 }

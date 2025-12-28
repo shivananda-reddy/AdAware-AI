@@ -43,7 +43,7 @@ def check_reputation(url: Optional[str], page_origin: Optional[str] = None) -> S
     if domain:
         # 1. Length check
         if len(domain) > 30:
-            rep.flags.append("Veriy long domain name")
+            rep.flags.append("Very long domain name")
             
         # 2. Hyphen check
         if domain.count("-") > 3:

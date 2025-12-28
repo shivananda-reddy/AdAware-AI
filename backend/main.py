@@ -18,8 +18,35 @@ app = FastAPI(title=API_TITLE)
 
 @app.on_event("startup")
 def on_startup():
+    LOG.info("=" * 60)
+    LOG.info("AdAware AI Backend Starting...")
+    LOG.info("=" * 60)
+    
     validate_config()
     storage.init_db()
+    
+    # Pre-load ML models to avoid first-request delays
+    LOG.info("Pre-loading ML models...")
+    
+    # Pre-load NLP models
+    try:
+        from backend.services import nlp
+        nlp._get_sentiment_pipe()
+        nlp._get_ner_pipe()
+    except Exception as e:
+        LOG.warning(f"NLP model pre-load had issues: {e}")
+    
+    # Pre-load CLIP model
+    try:
+        from backend.services import fusion
+        fusion.get_clip_model()
+        fusion.get_clip_processor()
+    except Exception as e:
+        LOG.warning(f"CLIP model pre-load had issues: {e}")
+    
+    LOG.info("=" * 60)
+    LOG.info("AdAware AI Backend Ready!")
+    LOG.info("=" * 60)
 
 # Allow requests from local web dashboard (dev only)
 app.add_middleware(

@@ -15,6 +15,7 @@ from backend.services.ocr import extract_text_with_conf
 from backend.services.nlp import analyze_text
 from backend.services.fusion import compute_image_text_similarity, get_fusion_consistency_view
 from backend.services.explain import highlight_keywords, generate_explanation, build_final_explanation
+from backend.services import classifier
 from backend.services.classifier import (
     predict_scam_label,
     compute_legitimacy_score,
@@ -178,20 +179,24 @@ async def run_analysis_pipeline(payload: HoverPayload) -> AnalysisResult:
         
         # 4) NLP & Classification (Legacy pipeline)
         nlp_res = analyze_text(combined_text)
-        label_legacy, conf_legacy = predict_label(combined_text)
         
-        sim = 0.0
+        sim = None  # Default to None (unavailable) not 0.0
         if pil_image and combined_text:
              try: 
                  sim = compute_image_text_similarity(pil_image, combined_text)
+                 if sim is not None:
+                     LOG.info(f"Image-text similarity: {sim:.3f}")
+                 else:
+                     LOG.info("Image-text similarity: unavailable (CLIP not loaded)")
              except Exception as e: 
                  LOG.warning(f"Fusion similarity failed: {e}")
+                 sim = None
 
         # 5) Rules Engine (New)
         rule_triggers = policy_rules.evaluate_rules(combined_text)
         
         # 5b) Basic Classification (Scam Focus)
-        label_legacy, _ = classifier.predict_scam_label(combined_text)
+        label_legacy, _ = predict_scam_label(combined_text)
         
         # 6) Catalog Lookup & Enrichment
         # Move up NLP entities to help here
@@ -217,37 +222,66 @@ async def run_analysis_pipeline(payload: HoverPayload) -> AnalysisResult:
             health_advisories.extend(known_brand.get("health_advisory", []))
             
         # Add heuristic advisories (unique)
-        heuristic_advisories = classifier.locate_health_advisories(combined_text)
+        heuristic_advisories = locate_health_advisories(combined_text)
         for h in heuristic_advisories:
             if h not in health_advisories: health_advisories.append(h)
             
-        # Product Info Population
-        category_source = "Inferred"
+        # Product Info Population (FIXED: populate earlier, handle catalog properly)
         if known_brand:
-            if not p_info.get("product_name"):
-                 p_info["product_name"] = known_brand.get("names", ["Unknown"])[0]
-            if not p_info.get("formatted_price"):
-                 p_info["formatted_price"] = known_brand.get("price_range", "Not found")
-            
+            # Catalog-matched brand - use catalog data as authoritative
             p_info["brand_name"] = known_brand.get("names", ["Unknown"])[0]
             p_info["category"] = known_brand.get("category", "Unclassified")
+            p_info["product_name"] = vision_info.get("product_name") or known_brand.get("names", ["Unknown"])[0]
+            p_info["formatted_price"] = known_brand.get("price_range", "Not found")
             category_source = "Catalog"
+            LOG.info(f"✓ Brand matched in catalog: {p_info['brand_name']} ({p_info['category']})")
         else:
-            # Fallback for category
-            if any(w in ocr_text.lower() for w in ["energy drink", "caffeine"]):
+            # No catalog match - use vision/OCR inference
+            p_info["brand_name"] = vision_brand or (brand_entity_names[0] if brand_entity_names else "Unknown brand")
+            p_info["product_name"] = vision_info.get("product_name") or "Unknown product"
+            
+            # Infer category from keywords
+            category_source = "Inferred"
+            t_lower = combined_text.lower()
+            if any(w in t_lower for w in ["energy drink", "caffeine", "energy"]):
                 p_info["category"] = "Energy Drink"
-            elif any(w in ocr_text.lower() for w in ["supplement", "vitamin"]):
+            elif any(w in t_lower for w in ["supplement", "vitamin", "protein"]):
                 p_info["category"] = "Supplements"
+            elif any(w in t_lower for w in ["shoes", "sneakers", "footwear"]):
+                p_info["category"] = "Footwear"
+            elif any(w in t_lower for w in ["phone", "smartphone", "mobile"]):
+                p_info["category"] = "Electronics"
+            elif vision_info.get("category"):
+                p_info["category"] = vision_info.get("category")
+            else:
+                p_info["category"] = "Unclassified"
+            
+            # Price detection from OCR entities
+            price_entities = [e.get("text") for e in raw_entities if e.get("type") == "PRICE"]
+            p_info["formatted_price"] = price_entities[0] if price_entities else "Not detected"
         
         # 7) Legitimacy Scoring
         # Start with catalog trust
         catalog_trust_level = known_brand.get("trust_baseline") if known_brand else None
         
-        # Domain check (Mock for now, normally from reputation service)
+        # Domain check - don't penalize local/extension/dashboard origins
         domain_trust = "neutral"
-        if rep.flags: domain_trust = "suspicious"
+        if payload.page_url and payload.page_url not in ["WebDashboard", "Extension", "localhost", "127.0.0.1"]:
+            # Only apply reputation checks for real external URLs
+            if rep.flags and len(rep.flags) > 0:
+                # Check if flags are serious (not just "Not HTTPS")
+                serious_flags = [f for f in rep.flags if "Not HTTPS" not in f]
+                if serious_flags:
+                    domain_trust = "suspicious"
+                    LOG.warning(f"Domain trust: suspicious due to {serious_flags}")
+            elif rep.https and rep.domain:
+                domain_trust = "trusted"
+        else:
+            # Local/extension - consider neutral to trusted
+            domain_trust = "neutral"
+            LOG.info(f"Domain trust: neutral (local/extension origin)")
         
-        legitimacy_score = classifier.compute_legitimacy_score(
+        legitimacy_score = compute_legitimacy_score(
             scam_label=label_legacy,
             catalog_trust=catalog_trust_level,
             domain_trust=domain_trust,
@@ -258,7 +292,7 @@ async def run_analysis_pipeline(payload: HoverPayload) -> AnalysisResult:
         # 8) Computed Confidence
         # How sure are we about this result?
         ocr_quality = 1.0 if len(ocr_text) > 50 else (len(ocr_text)/50.0)
-        computed_conf = classifier.compute_model_confidence(
+        computed_conf = compute_model_confidence(
             vision_success=bool(vision_info),
             ocr_quality_score=ocr_quality,
             catalog_match=bool(known_brand),
@@ -302,35 +336,42 @@ async def run_analysis_pipeline(payload: HoverPayload) -> AnalysisResult:
         # 12) Final Explanation
         final_expl = build_final_explanation(legacy_report)
         explanation_text = final_expl.get("explanation_text", "")
+        llm_summary = legacy_report.get("llm_summary") if payload.use_llm else None
+        # Refresh product info in case LLM suggested updates
+        p_info = legacy_report.get("product_info", p_info)
         
         # 13) Assembly
         # Extract refined signals
-        evidence_spans, subcats = classifier.extract_evidence_spans(combined_text)
+        evidence_spans, subcats = extract_evidence_spans(combined_text)
         
         raw_entities = nlp_res.get("entities", [])
-        brand_entity_names = [e.get("text", "") if isinstance(e, dict) else str(e) for e in raw_entities]
+        brand_entity_names = [e.get("text", "") if isinstance(e, dict) else str(e) for e in raw_entities if isinstance(e, dict) and e.get("type") == "BRAND"]
         if known_brand:
              brand_entity_names.insert(0, known_brand["names"][0])
+        
+        # Ensure sim is float or None for schema
+        sim_value = sim if sim is not None else None
         
         result = AnalysisResult(
             request_id=request_id,
             timestamp=timestamp,
             final_label=final_label,
             risk_score=risk_score,
-            legitimacy_score=legitimacy_score/100.0, # Schema expects 0-1 float for new field? check schema
+            legitimacy_score=legitimacy_score/100.0, # Convert 0-100 to 0-1
             health_advisory=health_advisories,
             subcategories=list(set(subcats)), 
             brand_entities=list(set(brand_entity_names)),
             sentiment=nlp_res.get("sentiment", {}).get("label", "neutral"),
-            evidence=extract_evidence(nlp_res, combined_text), # legacy evidence extractor or replace?
+            evidence=extract_evidence(nlp_res, combined_text),
             rule_triggers=rule_triggers,
             source_reputation=rep,
             ocr_text=ocr_text,
             llm_used=llm_used,
             explanation_text=explanation_text,
+            llm_summary=llm_summary,
             confidence=computed_conf,
-            image_text_similarity=sim, # Can be None now? Schema calls for Optional[float]
-            image_quality=vision_info,
+            image_text_similarity=sim_value,
+            image_quality=blur_info,  # Use blur_info not vision_info
             product_info=p_info 
         )
         

@@ -40,6 +40,16 @@ class AnalyzeRequest(HoverPayload):
     """Alias for HoverPayload for clarity in new API docs"""
     pass
 
+class ExportRequest(BaseModel):
+    """Request to export a PDF. If `analysis` is provided, it will be used;
+    otherwise the backend will run a fresh analysis with the provided inputs."""
+    analysis: Optional[AnalysisResult] = None
+    image_base64: Optional[str] = None
+    image_url: Optional[str] = None
+    page_url: Optional[str] = None
+    ad_text: Optional[str] = None
+    use_llm: bool = False
+
 # --- Component Models ---
 
 class RuleTrigger(BaseModel):
@@ -96,6 +106,7 @@ class AnalysisResult(BaseModel):
     
     # Backward compatibility with old classify/explain fields (merged view)
     explanation_text: Optional[str] = None 
+    llm_summary: Optional[str] = None
     confidence: float = 0.0
 
     # Extended Metrics

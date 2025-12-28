@@ -64,8 +64,10 @@ from typing import Dict, Any, Optional
 
 try:
     from openai import AsyncOpenAI
+    _HAS_OPENAI = True
 except ImportError:
     AsyncOpenAI = None  # type: ignore
+    _HAS_OPENAI = False
 
 DEFAULT_MODEL = os.getenv("AD_AWARE_LLM_MODEL", "gpt-4o")
 
@@ -80,7 +82,7 @@ def _has_api_key() -> bool:
 # Global client singleton
 _CLIENT = None
 
-def _get_client() -> Optional[AsyncOpenAI]:
+def _get_client() -> Optional[Any]:
     global _CLIENT
     if _CLIENT:
         return _CLIENT

@@ -91,14 +91,16 @@ def get_clip_model():
         LOG.info("Loading CLIP model...")
         kwargs = {"local_files_only": True} if ADAWARE_HF_OFFLINE else {}
         _CLIP_MODEL = CLIPModel.from_pretrained("openai/clip-vit-base-patch32", **kwargs)
+        LOG.info("✓ CLIP model loaded successfully")
         return _CLIP_MODEL
     except Exception as e:
-        LOG.warning(f"Failed to load CLIP model (Offline={ADAWARE_HF_OFFLINE}): {e}")
+        LOG.warning(f"✗ Failed to load CLIP model (Offline={ADAWARE_HF_OFFLINE}): {e}")
+        LOG.info("Image-text similarity will be unavailable")
         _CLIP_LOAD_FAILED = True
         return None
 
 def get_clip_processor():
-    global _CLIP_PROCESSOR
+    global _CLIP_PROCESSOR, _CLIP_LOAD_FAILED
     if ADAWARE_DISABLE_CLIP or _CLIP_LOAD_FAILED:
         return None
     if _CLIP_PROCESSOR:
@@ -107,6 +109,10 @@ def get_clip_processor():
     try:
         kwargs = {"local_files_only": True} if ADAWARE_HF_OFFLINE else {}
         _CLIP_PROCESSOR = CLIPProcessor.from_pretrained("openai/clip-vit-base-patch32", **kwargs)
+        return _CLIP_PROCESSOR
+    except Exception as e:
+        LOG.warning(f"Failed to load CLIP processor: {e}")
+        _CLIP_LOAD_FAILED = TrueOR = CLIPProcessor.from_pretrained("openai/clip-vit-base-patch32", **kwargs)
         return _CLIP_PROCESSOR
     except Exception:
         return None
@@ -121,7 +127,7 @@ def _clip_similarity(pil_image: Image.Image, text: str) -> Optional[float]:
     if not _HAS_CLIP:
         return None
 
-    model = _get_clip_model()
+    model = get_clip_model()
     processor = _CLIP_PROCESSOR
     if model is None or processor is None:
         return None
@@ -371,27 +377,4 @@ def get_fusion_consistency_view(report: Dict[str, Any]) -> Dict[str, Any]:
         "overall_consistency_inferred": inferred_consistency,
         "overall_consistency_final": fused_consistency_label,
         "reasoning": reasoning,
-    }
-# backend/fusion.py
-
-def get_fusion_consistency(report: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    Return a fusion consistency score combining image-text similarity and visual analysis.
-    """
-    image_text_sim = report.get("image_text_similarity", 0.0)
-    vision_confidence = report.get("vision", {}).get("confidence", 0.0)
-    consistency_score = (image_text_sim + vision_confidence) / 2.0
-
-    # Determine the consistency label based on the score
-    if consistency_score >= 0.8:
-        consistency_label = "consistent"
-    elif consistency_score >= 0.5:
-        consistency_label = "partially_consistent"
-    else:
-        consistency_label = "inconsistent"
-
-    return {
-        "consistency_score": round(consistency_score, 2),
-        "overall_consistency": consistency_label,
-        "reasoning": "Consistent visuals and text." if consistency_label == "consistent" else "Some inconsistency detected between text and visuals.",
     }
