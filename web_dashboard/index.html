@@ -1,127 +1,130 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 
 <head>
-  <meta charset="utf-8" />
-  <title>AdAware AI – Advanced Dashboard</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-
+  <meta charset="UTF-8">
+  <title>AdAware AI Dashboard</title>
   <link rel="stylesheet" href="styles.css">
 </head>
 
 <body>
-
-  <div class="page">
-
-    <!-- Header -->
-    <header class="top-bar">
-      <div class="app-branding">
-        <div class="logo-mark">A</div>
-        <div class="flex-col">
-          <div class="app-title">AdAware AI</div>
-          <div class="app-subtitle">Deepfake Ad Analysis & Trust Verification</div>
-        </div>
-      </div>
-
-      <div class="header-actions">
-        <div class="status-capsule" id="backendStatus">
-          <span class="status-dot"></span> Connecting...
-        </div>
-
-        <button class="btn-ghost" onclick="window.print()" title="Print Report">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-            stroke-linecap="round" stroke-linejoin="round">
-            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-            <polyline points="7 10 12 15 17 10"></polyline>
-            <line x1="12" y1="15" x2="12" y2="3"></line>
-          </svg>
-        </button>
-      </div>
+  <div class="dashboard-container">
+    <header>
+      <h1>AdAware AI <span class="badge">Dashboard</span></h1>
+      <nav>
+        <button id="btn-analyze-tab" class="active">Analyze</button>
+        <button id="btn-history-tab">History</button>
+        <button id="btn-stats-tab">Stats</button>
+      </nav>
     </header>
 
-    <!-- Input & Preview Section -->
-    <div class="input-wrapper">
-      <!-- Left: Input Controls -->
-      <div class="glass-card">
-        <div class="section-label">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
-            stroke-linejoin="round">
-            <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
-            <circle cx="8.5" cy="8.5" r="1.5"></circle>
-            <polyline points="21 15 16 10 5 21"></polyline>
-          </svg>
-          New Analysis
-        </div>
-
-        <label class="upload-card">
-          <input id="imageFile" type="file" accept="image/*" />
-          <div class="upload-icon-circle">
-            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-              stroke-linecap="round" stroke-linejoin="round">
-              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-              <polyline points="17 8 12 3 7 8"></polyline>
-              <line x1="12" y1="3" x2="12" y2="15"></line>
-            </svg>
+    <!-- ANALYZE VIEW -->
+    <main id="view-analyze">
+      <div class="grid-layout">
+        <div class="glass-card input-section">
+          <h2>Analyze Ad</h2>
+          <div class="upload-area" id="drop-zone">
+            <p>Drag & Drop Image or Click to Upload</p>
+            <input type="file" id="file-input" hidden accept="image/*">
           </div>
-          <div class="font-bold text-main" style="margin-bottom: 8px;">Drag & Drop or Click to Upload</div>
-          <div class="text-xs text-muted">Supports JPG, PNG, WEBP (Max 5MB)</div>
-        </label>
+          <div class="or-divider">OR</div>
+          <input type="text" id="url-input" placeholder="Paste Image URL">
+          <textarea id="caption-input" placeholder="Optional caption context..."></textarea>
 
-        <div class="url-input-container">
-          <svg class="input-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-            stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <circle cx="12" cy="12" r="10"></circle>
-            <line x1="2" y1="12" x2="22" y2="12"></line>
-            <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path>
-          </svg>
-          <input id="imageUrl" type="text" class="styled-input" placeholder="Or paste image URL..." />
+          <div class="settings">
+            <label><input type="checkbox" id="chk-use-llm"> Use LLM (Slower but detailed)</label>
+            <label><input type="checkbox" id="chk-consent"> Allow Data Usage</label>
+          </div>
+
+          <button id="btn-analyze" class="btn-primary">Analyze Risk</button>
+          <div id="backend-status" class="status-indicator">Backend: Checking...</div>
         </div>
 
-        <div class="flex-between mt-4">
-          <label class="flex-center gap-2 text-sm muted" style="cursor:pointer; user-select:none;">
-            <input type="checkbox" id="useLlm" checked
-              style="accent-color:var(--accent-primary); width:16px; height:16px;" />
-            Enable Enhanced LLM Analysis
-          </label>
-        </div>
-
-        <button id="btnAnalyze" class="btn-analyze" type="button">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-            stroke-linecap="round" stroke-linejoin="round">
-            <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
-          </svg>
-          Run Diagnostics
-        </button>
-      </div>
-
-      <!-- Right: Preview -->
-      <div class="glass-card" style="padding: 12px;">
-        <div id="previewInner" class="preview-box">
-          <div class="flex-col flex-center text-muted">
-            <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1"
-              stroke-linecap="round" stroke-linejoin="round" style="opacity:0.3; margin-bottom:12px;">
-              <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
-              <circle cx="8.5" cy="8.5" r="1.5"></circle>
-              <polyline points="21 15 16 10 5 21"></polyline>
-            </svg>
-            <span class="text-xs">No image selected</span>
+        <div class="glass-card result-section" id="result-container" style="display:none">
+          <div class="result-header">
+            <span id="res-label" class="label-badge">Analyzing...</span>
+            <span id="res-score" class="score-text"></span>
+          </div>
+          <div id="res-content">
+            <!-- Dynamic result content -->
           </div>
         </div>
       </div>
-    </div>
+    </main>
 
-    <section id="resultArea">
-      <div class="glass-card flex-center" style="min-height: 200px;">
-        <div class="text-muted text-sm">Analysis results will appear here.</div>
+    <!-- HISTORY VIEW -->
+    <main id="view-history" style="display:none">
+      <div class="history-layout">
+        <div class="glass-card history-list-section">
+          <h2>Analysis History</h2>
+          <div class="filters">
+            <select id="filter-label">
+              <option value="">All Labels</option>
+              <option value="high-risk">High Risk</option>
+              <option value="scam-suspected">Scam Suspected</option>
+              <option value="low-risk">Low Risk</option>
+              <option value="safe">Safe</option>
+            </select>
+            <button id="btn-refresh-history">Refresh</button>
+          </div>
+          <table class="history-table">
+            <thead>
+              <tr>
+                <th>Time</th>
+                <th>Domain</th>
+                <th>Label</th>
+                <th>Score</th>
+              </tr>
+            </thead>
+            <tbody id="history-tbody">
+              <tr>
+                <td colspan="4">Loading...</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="glass-card details-pane" id="details-pane">
+          <h3>Details</h3>
+          <p class="placeholder-text">Click a row to see details.</p>
+          <div id="details-content" style="display:none">
+            <div class="detail-row"><strong>Request ID:</strong> <span id="det-id"></span></div>
+            <div class="detail-row"><strong>Label:</strong> <span id="det-label" class="label-badge"></span></div>
+            <div class="detail-row"><strong>Risk Score:</strong> <span id="det-score"></span></div>
+            <div class="detail-row"><strong>Explanation:</strong>
+              <p id="det-explanation"></p>
+            </div>
+            <div class="detail-row"><strong>Evidence (Why Flagged):</strong>
+              <ul id="det-evidence"></ul>
+            </div>
+            <div class="detail-row"><strong>OCR Text:</strong>
+              <pre id="det-ocr"></pre>
+            </div>
+          </div>
+        </div>
       </div>
-    </section>
+    </main>
+
+    <!-- STATS VIEW -->
+    <main id="view-stats" style="display:none">
+      <div class="stats-grid">
+        <div class="glass-card stat-box">
+          <h3>Total Analyses</h3>
+          <div class="big-number" id="stat-total">-</div>
+        </div>
+        <div class="glass-card stat-box">
+          <h3>Label Distribution</h3>
+          <ul id="stat-labels-list"></ul>
+        </div>
+        <div class="glass-card stat-box">
+          <h3>Feedback Accuracy</h3>
+          <div class="big-number" id="stat-accuracy">-</div>
+          <small>Based on user feedback</small>
+        </div>
+      </div>
+    </main>
 
   </div>
-
   <script src="script.js"></script>
 </body>
 

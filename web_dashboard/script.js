@@ -1,380 +1,251 @@
+
 const API_BASE = "http://127.0.0.1:8000";
-const ANALYZE_ENDPOINT = API_BASE + "/analyze_hover";
 
-const backendStatusEl = document.getElementById("backendStatus");
-const imageFileInput = document.getElementById("imageFile");
-const imageUrlInput = document.getElementById("imageUrl");
-const useLlmCheckbox = document.getElementById("useLlm");
-const btnAnalyze = document.getElementById("btnAnalyze");
-const previewInner = document.getElementById("previewInner");
-const resultArea = document.getElementById("resultArea");
+// --- Tab Navigation ---
+const tabs = {
+  analyze: document.getElementById('view-analyze'),
+  history: document.getElementById('view-history'),
+  stats: document.getElementById('view-stats')
+};
+const btns = {
+  analyze: document.getElementById('btn-analyze-tab'),
+  history: document.getElementById('btn-history-tab'),
+  stats: document.getElementById('btn-stats-tab')
+};
 
-// --- 1. Backend Check ---
+function switchTab(name) {
+  Object.values(tabs).forEach(el => el.style.display = 'none');
+  Object.values(btns).forEach(el => el.classList.remove('active'));
+  tabs[name].style.display = 'block';
+  btns[name].classList.add('active');
+
+  if (name === 'history') loadHistory();
+  if (name === 'stats') loadStats();
+}
+
+btns.analyze.addEventListener('click', () => switchTab('analyze'));
+btns.history.addEventListener('click', () => switchTab('history'));
+btns.stats.addEventListener('click', () => switchTab('stats'));
+
+// --- Analyze Logic (Legacy + New) ---
+const fileInput = document.getElementById("file-input");
+const dropZone = document.getElementById("drop-zone");
+const urlInput = document.getElementById("url-input");
+const captionInput = document.getElementById("caption-input");
+const btnAnalyze = document.getElementById("btn-analyze");
+const backendStatus = document.getElementById("backend-status");
+
+const resultContainer = document.getElementById("result-container");
+const resContent = document.getElementById("res-content");
+const resLabel = document.getElementById("res-label");
+const resScore = document.getElementById("res-score");
+
+// Status Check
 async function checkBackend() {
-    try {
-        const res = await fetch(API_BASE + "/docs", { method: "GET" });
-        if (res.ok) {
-            backendStatusEl.innerHTML = '<span class="status-dot"></span> System Online';
-            backendStatusEl.className = 'status-capsule online';
-        } else {
-            throw new Error("Backend error");
-        }
-    } catch {
-        backendStatusEl.innerHTML = '<span class="status-dot"></span> Backend Offline';
-        backendStatusEl.className = 'status-capsule offline';
-    }
+  try {
+    await fetch(API_BASE + "/docs", { method: "HEAD" });
+    backendStatus.textContent = "Backend: Online";
+    backendStatus.style.color = "#0f0";
+  } catch (e) {
+    backendStatus.textContent = "Backend: Offline";
+    backendStatus.style.color = "#f00";
+  }
 }
-
-// --- 2. Image Helpers ---
-async function fileToBase64(file) {
-    return new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(reader.result.split(",")[1]);
-        reader.onerror = reject;
-        reader.readAsDataURL(file);
-    });
-}
-
-function renderPreview(imageSrc) {
-    if (!imageSrc) {
-        previewInner.innerHTML = `
-    <div class="flex-col flex-center text-muted">
-       <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" style="opacity:0.3; margin-bottom:12px;"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg>
-       <span class="text-xs">No image selected</span>
-    </div>`;
-        return;
-    }
-    previewInner.innerHTML = `<img src="${imageSrc}" alt="Ad preview" />`;
-}
-
-// Handle Drag & Drop / File Input visuals
-const dropZone = document.querySelector('.upload-card');
-
-['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
-    dropZone.addEventListener(eventName, preventDefaults, false);
-});
-function preventDefaults(e) { e.preventDefault(); e.stopPropagation(); }
-
-['dragenter', 'dragover'].forEach(eventName => {
-    dropZone.addEventListener(eventName, () => dropZone.classList.add('drag-over'), false);
-});
-['dragleave', 'drop'].forEach(eventName => {
-    dropZone.addEventListener(eventName, () => dropZone.classList.remove('drag-over'), false);
-});
-
-dropZone.addEventListener('drop', (e) => {
-    const dt = e.dataTransfer;
-    const files = dt.files;
-    if (files && files[0]) {
-        imageFileInput.files = files;
-        renderPreview(URL.createObjectURL(files[0]));
-    }
-});
-
-imageFileInput.addEventListener('change', () => {
-    if (imageFileInput.files[0]) renderPreview(URL.createObjectURL(imageFileInput.files[0]));
-});
-
-// --- 3. Render Report (Bento Grid) ---
-function renderReport(report) {
-    // --- Helpers ---
-    const safe = (val, def = "N/A") => (val !== undefined && val !== null && val !== "") ? val : def;
-    const listToTags = (list, cls = "tag") => (list || []).map(x => `<span class="${cls}">${x}</span>`).join('');
-
-    // Risk Color Logic
-    const riskColor = (l) => {
-        l = (l || "").toLowerCase();
-        if (l.includes("low") || l.includes("safe") || l.includes("minimal")) return "green";
-        if (l.includes("medium") || l.includes("moderate")) return "yellow";
-        return "red";
-    };
-
-    // Score Logic
-    const getScoreClass = (s) => s > 75 ? 'good' : s > 40 ? 'info' : 'bad';
-
-    // --- Data Extraction ---
-    const label = report.label_llm || report.label || "Unknown";
-    const credScore = Math.round(report.credibility_llm !== undefined ? report.credibility_llm : (report.credibility || 0));
-    const riskLevel = report.trust?.risk_level_llm || "Unknown";
-    const summary = report.llm_summary || report.explanation?.short_takeaway || "No summary available.";
-
-    const prod = report.product_info || {};
-    const vision = report.vision || {};
-    const visionLLM = vision.llm || {};
-    const imgQual = report.image_quality || {};
-    const nlp = report.nlp || {};
-    const nlpLLM = nlp.llm || {};
-    const trust = report.trust || {};
-    const fusion = report.fusion_llm || {};
-    const valJudge = report.value_judgement || {};
-    const ocr = report.ocr_text_llm || report.ocr_text || "";
-
-    // --- HTML Construction ---
-    resultArea.innerHTML = `
-  <div class="bento-grid">
-    
-    <!-- 1. Hero Summary (Span 4) -->
-    <div class="glass-card summary-hero col-span-4" style="position:relative; min-height:220px; justify-content:center;">
-      <!-- Action Buttons -->
-      <div style="position:absolute; top:24px; right:24px; display:flex; gap:12px;">
-         <button class="btn-ghost" onclick="window.print()" title="Print / Save PDF">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
-         </button>
-      </div>
-
-      <div class="flex-between" style="align-items: flex-start; margin-bottom: 20px;">
-         <div class="flex-col">
-           <div class="text-xs uppercase" style="color:var(--accent-primary); letter-spacing:0.15em; font-weight:800; margin-bottom:8px;">Detection Result</div>
-           <h2 class="metric-big" style="background: linear-gradient(to right, #fff, #aaa); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">${label}</h2>
-         </div>
-         
-         <div class="flex-col" style="align-items:flex-end;">
-           <span class="tag ${riskColor(riskLevel) === 'red' ? 'red' : ''}" style="border-color: currentColor; color: var(--${riskColor(riskLevel)}); font-weight:700;">
-              ${riskLevel} Risk
-           </span>
-           <div class="flex-center gap-4 mt-4">
-              <div class="flex-col" style="align-items:flex-end;">
-                <span class="text-xs text-muted">Trustworthiness</span>
-                <span style="font-size:1.5rem; font-weight:800;">${credScore}/100</span>
-              </div>
-              <div class="score-circle ${getScoreClass(credScore)}">
-                ${credScore}
-              </div>
-           </div>
-         </div>
-      </div>
-      
-      <div class="summary-content" style="border-top:1px solid rgba(255,255,255,0.05); padding-top:20px;">
-        ${summary}
-      </div>
-      
-      ${report.ad_hash ? `<div class="text-xs font-mono text-muted mt-4 opacity-50">ID: ${report.ad_hash}</div>` : ''}
-    </div>
-
-    <!-- 2. Product Intelligence -->
-    <div class="glass-card col-span-2">
-      <div class="section-label">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.24 12.24a6 6 0 0 0-8.49-8.49L5 10.5V19h8.5z"></path><line x1="16" y1="8" x2="2" y2="22"></line><line x1="17.5" y1="15" x2="9" y2="15"></line></svg>
-        Product Context
-      </div>
-      <div class="flex-col gap-2" style="flex:1;">
-        <div class="flex-between glass-panel">
-          <span class="text-xs text-muted">Detected Product</span>
-          <span class="text-sm font-bold">${safe(prod.product_name)}</span>
-        </div>
-        <div class="flex-between glass-panel">
-          <span class="text-xs text-muted">Brand Entity</span>
-          <span class="text-sm font-bold">${safe(prod.brand_name)}</span>
-        </div>
-        <div class="flex-between glass-panel">
-          <span class="text-xs text-muted">Category</span>
-          <span class="text-sm font-bold">${safe(prod.category)}</span>
-        </div>
-        <div class="flex-between glass-panel" style="border-color:rgba(0,255,157,0.2);">
-          <span class="text-xs text-muted">Price Analysis</span>
-          <span class="text-sm font-bold" style="color:var(--success);">${safe(prod.detected_price)}</span>
-        </div>
-        
-        ${valJudge.worth_it ? `
-        <div class="mt-auto glass-panel" style="background:rgba(255,255,255,0.03);">
-           <div class="text-xs uppercase text-muted mb-2">Value Verdict</div>
-           <div class="font-bold text-main mb-1">${valJudge.worth_it}</div>
-           <div class="text-xs text-muted" style="line-height:1.4;">${safe(valJudge.reason)}</div>
-        </div>
-        ` : ''}
-      </div>
-    </div>
-
-    <!-- 3. Forensics & Trust -->
-    <div class="glass-card col-span-2">
-      <div class="section-label">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
-        Safety & Forensics
-      </div>
-      
-      <div class="flex-col gap-2" style="flex:1;">
-        <div class="grid grid-cols-2 gap-2" style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
-           <div class="glass-panel text-center">
-              <div class="text-xs text-muted mb-1">Authenticity</div>
-              <div class="font-bold text-sm">${safe(trust.ad_authenticity)}</div>
-           </div>
-           <div class="glass-panel text-center">
-              <div class="text-xs text-muted mb-1">Domain Trust</div>
-              <div class="font-bold text-sm">${safe(trust.url_trust)}</div>
-           </div>
-        </div>
-        
-        ${(trust.risk_signals && trust.risk_signals.length) ? `
-          <div class="mt-4">
-            <div class="text-xs uppercase text-muted mb-2" style="color:var(--danger);">Detected Risks</div>
-            <div class="glass-panel" style="border-color:rgba(255,0,60,0.2); background:rgba(255,0,60,0.05);">
-              <ul class="text-xs text-muted" style="padding-left:16px; line-height:1.6;">
-                ${(trust.risk_signals || []).map(x => `<li>${x}</li>`).join('')}
-              </ul>
-            </div>
-          </div>
-        ` : ''}
-
-        ${(nlpLLM.claims && nlpLLM.claims.length) ? `
-          <div class="mt-auto">
-            <div class="text-xs uppercase text-muted mb-2">Key Claims</div>
-            <ul class="text-xs text-muted" style="padding-left:16px; line-height:1.6;">
-              ${(nlpLLM.claims.slice(0, 3)).map(x => `<li>${x}</li>`).join('')}
-            </ul>
-          </div>
-        ` : ''}
-      </div>
-    </div>
-
-    <!-- 4. Visual Analysis -->
-    <div class="glass-card col-span-2">
-      <div class="section-label">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>
-        Visual Diagnostics
-      </div>
-      
-      <div class="flex-col gap-2" style="flex:1;">
-         <div class="flex-between glass-panel">
-            <span class="text-xs text-muted">Quality Score</span>
-            <span class="text-sm font-bold">${Math.round(imgQual.blur_score || 0)} <span class="text-muted font-normal">(${imgQual.is_blurry ? "Blurry" : "Sharp"})</span></span>
-         </div>
-         <div class="flex-between glass-panel">
-            <span class="text-xs text-muted">Consistency</span>
-            <span class="text-sm font-bold">${safe(fusion.overall_consistency, "N/A")}</span>
-         </div>
-
-         <div class="mt-4">
-            <div class="text-xs uppercase text-muted mb-2">Scene Description</div>
-            <div class="text-xs text-muted" style="line-height:1.5;">${safe(vision.visual_description, "No description generated.")}</div>
-         </div>
-
-         ${(visionLLM.suspicious_visual_cues && visionLLM.suspicious_visual_cues.length) ? `
-           <div class="mt-auto">
-              <div class="text-xs uppercase text-muted mb-2" style="color:var(--warning);">Suspicious Visuals</div>
-              <div class="flex-wrap gap-2" style="display:flex;">${listToTags(visionLLM.suspicious_visual_cues, "tag red")}</div>
-           </div>
-         ` : ''}
-      </div>
-    </div>
-
-    <!-- 5. Deep Dive Details -->
-    <div class="glass-card col-span-2">
-       <div class="section-label">
-         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
-         Deep Dive & Semantics
-       </div>
-        
-        <div class="flex-col gap-4" style="flex:1;">
-            <div>
-               <div class="text-xs uppercase text-muted mb-2">Psychological Triggers</div>
-               <div class="grid grid-cols-2 gap-2" style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
-                  <div class="glass-panel">
-                     <div class="text-xs text-muted">Sentiment</div>
-                     <div class="font-bold text-sm">${safe(nlp.sentiment?.label)}</div>
-                  </div>
-                  <div class="glass-panel">
-                     <div class="text-xs text-muted">Urgency</div>
-                     <div class="font-bold text-sm">${safe(nlpLLM.call_to_action_strength)}</div>
-                  </div>
-               </div>
-               
-               ${(nlpLLM.manipulative_phrases && nlpLLM.manipulative_phrases.length) ? `
-                 <div class="mt-2 text-xs text-muted">
-                    Detected manipulative phrasing:
-                    <div class="flex-wrap gap-1 mt-1" style="display:flex;">${listToTags(nlpLLM.manipulative_phrases)}</div>
-                 </div>
-               ` : ''}
-            </div>
-
-            <div>
-               <div class="text-xs uppercase text-muted mb-2">Object Detection</div>
-               <div class="flex-wrap gap-1" style="display:flex;">
-                  ${listToTags(vision.objects)}
-               </div>
-            </div>
-
-            <div class="mt-auto">
-               <div class="text-xs uppercase text-muted mb-2">OCR Extraction</div>
-               <div class="glass-panel text-xs text-muted font-mono" style="max-height:80px; overflow-y:auto; white-space:pre-wrap;">${ocr || "No text detected."}</div>
-            </div>
-        </div>
-    </div>
-
-  </div>
-
-  <!-- Raw JSON -->
-  <div class="glass-card json-container">
-     <details>
-       <summary class="text-xs uppercase font-bold" style="color:var(--text-muted); cursor:pointer;">View Raw Analysis Payload</summary>
-       <pre class="mt-4">${JSON.stringify(report, null, 2)}</pre>
-     </details>
-  </div>
-`;
-}
-
-// --- 4. Main Execution ---
-btnAnalyze.addEventListener("click", async () => {
-    btnAnalyze.disabled = true;
-    btnAnalyze.innerHTML = `<span class="status-dot" style="background:var(--accent-primary); box-shadow:0 0 10px var(--accent-primary); animation:pulse 1s infinite"></span> Processing...`;
-
-    // Loading State
-    resultArea.innerHTML = `
-  <div class="glass-card flex-center" style="height:300px; color:var(--text-muted);">
-     <div class="flex-col flex-center gap-4">
-        <div style="width:50px; height:50px; border:3px solid rgba(255,255,255,0.1); border-top-color:var(--accent-primary); border-radius:50%; animation: spin 0.8s linear infinite;"></div>
-        <div class="text-sm uppercase" style="letter-spacing:0.1em;">Analyzing Media...</div>
-     </div>
-  </div>
-  <style>@keyframes spin { 100% { transform: rotate(360deg); } } @keyframes pulse { 50% { opacity:0.5; } }</style>
-`;
-
-    try {
-        let imageBase64 = null;
-        let imageUrl = null;
-
-        if (imageFileInput.files[0]) {
-            imageBase64 = await fileToBase64(imageFileInput.files[0]);
-        } else if (imageUrlInput.value.trim()) {
-            imageUrl = imageUrlInput.value.trim();
-        } else {
-            renderPreview(null);
-        }
-
-        const payload = {
-            image_base64: imageBase64,
-            image_url: imageUrl,
-            caption_text: imageUrl ? "Ad URL: " + imageUrl : "",
-            page_origin: "WebDashboard",
-            consent: !!useLlmCheckbox.checked
-        };
-
-        const res = await fetch(ANALYZE_ENDPOINT, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(payload)
-        });
-
-        if (!res.ok) throw new Error(await res.text());
-
-        const data = await res.json();
-        renderReport(data.result || data);
-
-    } catch (err) {
-        console.error(err);
-        resultArea.innerHTML = `
-    <div class="glass-card center-text" style="border-color:var(--danger); text-align:center;">
-      <div class="section-label" style="justify-content:center; color:var(--danger);">Analysis Failed</div>
-      <p class="text-sm text-muted">${String(err)}</p>
-      <button onclick="location.reload()" class="btn-analyze" style="width:auto; margin:20px auto; background:var(--card-bg); border:1px solid var(--card-border); color:var(--text-main);">Try Again</button>
-    </div>
-  `;
-    } finally {
-        btnAnalyze.disabled = false;
-        btnAnalyze.innerHTML = `
-    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>
-    Run Diagnostics
-  `;
-    }
-});
-
 checkBackend();
+
+// File handling
+dropZone.addEventListener("click", () => fileInput.click());
+fileInput.addEventListener("change", handleFile);
+dropZone.addEventListener("dragover", (e) => { e.preventDefault(); dropZone.style.borderColor = "#0ff"; });
+dropZone.addEventListener("dragleave", (e) => { e.preventDefault(); dropZone.style.borderColor = "#333"; });
+dropZone.addEventListener("drop", (e) => {
+  e.preventDefault();
+  dropZone.style.borderColor = "#333";
+  if (e.dataTransfer.files.length) handleFile({ target: { files: e.dataTransfer.files } });
+});
+
+let currentImageBase64 = null;
+
+function handleFile(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = (evt) => {
+    currentImageBase64 = evt.target.result.split(',')[1];
+    dropZone.innerHTML = `<img src="${evt.target.result}" style="max-height:150px; border-radius:8px">`;
+  };
+  reader.readAsDataURL(file);
+}
+
+// Analyze Call
+btnAnalyze.addEventListener("click", async () => {
+  const payload = {
+    image_base64: currentImageBase64,
+    image_url: urlInput.value.trim() || null,
+    caption_text: captionInput.value.trim() || null,
+    use_llm: document.getElementById('chk-use-llm').checked,
+    consent: document.getElementById('chk-consent').checked,
+    page_origin: "dashboard"
+  };
+
+  if (!payload.image_base64 && !payload.image_url && !payload.caption_text) {
+    alert("Please provide an image or text.");
+    return;
+  }
+
+  resultContainer.style.display = "block";
+  resLabel.className = "label-badge";
+  resLabel.textContent = "Analyzing...";
+  resContent.innerHTML = '<div class="spinner"></div>';
+
+  try {
+    const res = await fetch(API_BASE + "/analyze_hover", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    renderResult(data);
+  } catch (e) {
+    resLabel.textContent = "Error";
+    resContent.innerHTML = `<p style="color:red">${e.message}</p>`;
+  }
+});
+
+function renderResult(data) {
+  const label = data.final_label.replace('-', ' ').toUpperCase();
+  resLabel.textContent = label;
+  resScore.textContent = `Risk Score: ${(data.risk_score * 100).toFixed(0)}/100`;
+
+  // Color code
+  if (data.final_label === "safe") resLabel.style.background = "green";
+  else if (data.final_label === "high-risk" || data.final_label === "scam-suspected") resLabel.style.background = "red";
+  else resLabel.style.background = "orange";
+
+  let html = `<div class="p-4">`;
+
+  // Explanation
+  if (data.explanation_text) {
+    html += `<p class="explanation">${data.explanation_text}</p>`;
+  }
+
+  // Evidence
+  const evidence = data.evidence || {};
+  if (evidence.risky_phrases && evidence.risky_phrases.length > 0) {
+    html += `<h4>Risky Phrases Detected:</h4><ul>`;
+    evidence.risky_phrases.forEach(p => {
+      html += `<li>"${p.phrase}" - <small>${p.reason}</small></li>`;
+    });
+    html += `</ul>`;
+  }
+
+  // Rules
+  if (data.rule_triggers && data.rule_triggers.length > 0) {
+    html += `<h4>Policy Violations:</h4><ul>`;
+    data.rule_triggers.forEach(r => {
+      html += `<li><span class="badge-${r.severity}">${r.rule_id}</span> ${r.description}</li>`;
+    });
+    html += `</ul>`;
+  }
+
+  // Source Reputation
+  if (data.source_reputation && data.source_reputation.flags.length > 0) {
+    html += `<h4>Source Reputation Flags:</h4><ul>`;
+    data.source_reputation.flags.forEach(f => html += `<li>${f}</li>`);
+    html += `</ul>`;
+  }
+
+  html += `</div>`;
+  resContent.innerHTML = html;
+}
+
+// --- History Logic ---
+let historyData = []; // Store fetched list for detail retrieval
+
+async function loadHistory() {
+  const tbody = document.getElementById('history-tbody');
+  tbody.innerHTML = '<tr><td colspan="4">Loading...</td></tr>';
+
+  try {
+    const res = await fetch(API_BASE + "/api/v1/history?limit=20");
+    historyData = await res.json();
+
+    tbody.innerHTML = '';
+    if (historyData.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="4">No history yet.</td></tr>';
+      return;
+    }
+
+    historyData.forEach((item, idx) => {
+      const row = document.createElement('tr');
+      row.style.cursor = "pointer";
+      row.innerHTML = `
+                <td>${new Date(item.timestamp).toLocaleTimeString()}</td>
+                <td>${item.source_reputation?.domain || item.domain || "Unknown"}</td>
+                <td><span class="badgex ${item.final_label}">${item.final_label}</span></td>
+                <td>${(item.risk_score * 100).toFixed(0)}</td>
+            `;
+      row.addEventListener('click', () => showDetails(idx));
+      tbody.appendChild(row);
+    });
+
+  } catch (e) {
+    tbody.innerHTML = `<tr><td colspan="4" style="color:red">Failed to load history: ${e.message}</td></tr>`;
+  }
+}
+
+function showDetails(idx) {
+  const item = historyData[idx];
+  if (!item) return;
+
+  document.querySelector('#details-pane .placeholder-text').style.display = 'none';
+  document.getElementById('details-content').style.display = 'block';
+
+  document.getElementById('det-id').textContent = item.request_id || item.id || "N/A";
+  document.getElementById('det-label').textContent = item.final_label;
+  document.getElementById('det-score').textContent = `${(item.risk_score * 100).toFixed(0)}/100`;
+  document.getElementById('det-explanation').textContent = item.explanation_text || "No explanation available.";
+  document.getElementById('det-ocr').textContent = item.ocr_text || "N/A";
+
+  // Evidence list
+  const evidenceUl = document.getElementById('det-evidence');
+  evidenceUl.innerHTML = '';
+  const ev = item.evidence || {};
+  if (ev.risky_phrases && ev.risky_phrases.length > 0) {
+    ev.risky_phrases.forEach(p => {
+      const li = document.createElement('li');
+      li.innerHTML = `<mark>${p.text || p.phrase}</mark> - ${p.reason}`;
+      evidenceUl.appendChild(li);
+    });
+  } else {
+    evidenceUl.innerHTML = '<li>No specific evidence spans recorded.</li>';
+  }
+}
+
+document.getElementById('btn-refresh-history').addEventListener('click', loadHistory);
+
+// --- Stats Logic ---
+async function loadStats() {
+  try {
+    const res = await fetch(API_BASE + "/api/v1/stats");
+    const stats = await res.json();
+
+    document.getElementById('stat-total').textContent = stats.total_analyses;
+
+    const ul = document.getElementById('stat-labels-list');
+    ul.innerHTML = '';
+    Object.entries(stats.label_counts).forEach(([k, v]) => {
+      const li = document.createElement('li');
+      li.textContent = `${k}: ${v}`;
+      ul.appendChild(li);
+    });
+
+    const correct = stats.confusion_matrix.correct || 0;
+    const total = correct + (stats.confusion_matrix.incorrect || 0);
+    const acc = total ? ((correct / total) * 100).toFixed(1) + "%" : "N/A";
+    document.getElementById('stat-accuracy').textContent = acc;
+
+  } catch (e) {
+    console.error(e);
+  }
+}

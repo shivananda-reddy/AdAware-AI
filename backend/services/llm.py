@@ -183,46 +183,55 @@ You will receive a structured JSON analysis of an ad containing OCR text, comput
 
 Your task is to synthesize this information and return a single, valid JSON object containing a user-facing summary and enhanced analysis fields.
 
-Response Schema (JSON):
-{
-  "summary": "string, 180-220 words, plain text, 2-3 short paragraphs talking directly to the user",
-  "label_llm": "classification label (e.g., Safe Promotion, Scam Risk, High Pressure Sales, Informational)",
-  "credibility_llm": number (0-100, where 100 is perfectly trustworthy),
-  "risk_level": "low" | "medium" | "high",
-  "risk_signals_extra": ["list of additional risk strings"],
-  "product_info_updates": {
-      "product_name": "string",
-      "brand_name": "string",
-      "category": "string",
-      "detected_price": "string"
-  },
-  "ocr_enhanced": {
-      "ocr_text_clean": "cleaned version of OCR text",
-      "issues": ["list of OCR quality issues"],
-      "language": "ISO code (e.g. en, es)"
-  },
-  "nlp_enhanced": {
-      "enhanced_summary": "1-2 sentence summary of the text content",
-      "manipulative_phrases": ["list of manipulative or high-pressure phrases found"],
-      "claims": ["list of key factual claims"],
-      "call_to_action_strength": "low" | "medium" | "high"
-  },
-  "vision_enhanced": {
-      "visual_facts": ["list of key visual elements confirmed"],
-      "suspicious_visual_cues": ["list of potential deepfake artifacts or low-quality cues"],
-      "brand_consistency_notes": "string"
-  },
-  "fusion_reasoning": {
-      "overall_consistency": "consistent" | "partially_consistent" | "inconsistent",
-      "consistency_score": number (0.0-1.0),
-      "reasoning": "string explaining the consistency verdict"
-  },
-  "explanation_refined": {
-      "bullets": ["3-5 distinct bullet points explaining the risk level and score"],
-      "short_takeaway": "One clear actionable sentence for the user"
-  }
-}
-"""
+System Prompt:
+186: Response Schema (JSON):
+187: {
+188:   "summary": "string, 180-220 words, plain text, 2-3 short paragraphs talking directly to the user",
+189:   "label_llm": "classification label from [safe, low-risk, moderate-risk, high-risk, scam-suspected]",
+190:   "sub_labels": ["list of strings, e.g. health-claim, financial-promise, urgency, etc."],
+191:   "evidence_spans": [
+192:     {
+193:       "text": "exact phrase from text",
+194:       "kind": "risky_phrase | emotional_trigger | policy_rule",
+195:       "reason": "short explanation"
+196:     }
+197:   ],
+198:   "credibility_llm": number (0-100, where 100 is perfectly trustworthy),
+199:   "risk_level": "low" | "medium" | "high",
+200:   "risk_signals_extra": ["list of additional risk strings"],
+201:   "product_info_updates": {
+202:       "product_name": "string",
+203:       "brand_name": "string",
+204:       "category": "string",
+205:       "detected_price": "string"
+206:   },
+207:   "ocr_enhanced": {
+208:       "ocr_text_clean": "cleaned version of OCR text",
+209:       "issues": ["list of OCR quality issues"],
+210:       "language": "ISO code (e.g. en, es)"
+211:   },
+212:   "nlp_enhanced": {
+213:       "enhanced_summary": "1-2 sentence summary of the text content",
+214:       "manipulative_phrases": ["list of manipulative or high-pressure phrases found"],
+215:       "claims": ["list of key factual claims"],
+216:       "call_to_action_strength": "low" | "medium" | "high"
+217:   },
+218:   "vision_enhanced": {
+219:       "visual_facts": ["list of key visual elements confirmed"],
+220:       "suspicious_visual_cues": ["list of potential deepfake artifacts or low-quality cues"],
+221:       "brand_consistency_notes": "string"
+222:   },
+223:   "fusion_reasoning": {
+224:       "overall_consistency": "consistent" | "partially_consistent" | "inconsistent",
+225:       "consistency_score": number (0.0-1.0),
+226:       "reasoning": "string explaining the consistency verdict"
+227:   },
+228:   "explanation_refined": {
+229:       "bullets": ["3-5 distinct bullet points explaining the risk level and score"],
+230:       "short_takeaway": "One clear actionable sentence for the user"
+231:   }
+232: }
+233: """
 
 
 async def maybe_enhance_with_llm(report: Dict[str, Any]) -> Dict[str, Any]:
@@ -282,6 +291,12 @@ async def maybe_enhance_with_llm(report: Dict[str, Any]) -> Dict[str, Any]:
             enhanced["label_llm"] = data["label_llm"]
         if "credibility_llm" in data:
             enhanced["credibility_llm"] = data["credibility_llm"]
+            
+        # New fields: Sub-labels & Evidence Spans
+        if "sub_labels" in data:
+            enhanced["sub_labels"] = data["sub_labels"]
+        if "evidence_spans" in data:
+            enhanced["llm_evidence_spans"] = data["evidence_spans"]
         
         # 2. Product Info
         if "product_info_updates" in data:

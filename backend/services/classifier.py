@@ -58,6 +58,28 @@ PROMO_KEYWORDS = [
 ]
 
 
+def _locate_risky_spans(text_lower: str, keywords: List[str], kind: str) -> List[Dict[str, Any]]:
+    """
+    Locate start/end indices of risky phrases in text.
+    """
+    spans = []
+    for kw in keywords:
+        start = 0
+        while True:
+            idx = text_lower.find(kw, start)
+            if idx == -1:
+                break
+            spans.append({
+                "kind": kind,
+                "text": kw,
+                "start": idx,
+                "end": idx + len(kw),
+                "reason": f"Contains trigger phrase '{kw}'",
+                "category": "urgency" if kind == "risky_phrase" else "other" 
+            })
+            start = idx + len(kw)
+    return spans
+
 def _contains_any(text_lower: str, phrases: List[str]) -> bool:
     return any(p in text_lower for p in phrases)
 
@@ -318,6 +340,36 @@ def build_full_report(
     }
 
     risk_signals = _build_risk_signals(label, credibility, nlp_res)
+    
+    # --- New Logic for Subcategories & Spans ---
+    subcategories = []
+    evidence_spans = []
+    
+    # 1. Locate spans in OCR/NLP text
+    raw_text = (nlp_res.get("raw_text") or "").lower()
+    
+    # Urgency / suspicious phrases
+    urgency_spans = _locate_risky_spans(raw_text, RISKY_KEYWORDS + PROMO_KEYWORDS, "risky_phrase")
+    evidence_spans.extend(urgency_spans)
+    if urgency_spans:
+        subcategories.append("urgency")
+        
+    # Map label/signals to subcategories
+    if label == "scam_like":
+        subcategories.append("scam-suspected")
+    
+    # Health/Financial/Crypto heuristics (simple keyword check for now)
+    if any(w in raw_text for w in ["cure", "remedy", "doctor", "weight loss"]):
+        subcategories.append("health-claim")
+    if any(w in raw_text for w in ["bitcoin", "crypto", "investment", "double"]):
+        subcategories.append("financial-promise") # or crypto
+        if "crypto" in raw_text:
+            subcategories.append("crypto")
+
+    # Add to report
+    report["subcategories"] = list(set(subcategories))
+    report["evidence_spans"] = evidence_spans
+
     if risk_signals:
         # Extend reasons with risk signals for visibility in the UI
         trust["reasons"] = trust.get("reasons", []) + risk_signals
