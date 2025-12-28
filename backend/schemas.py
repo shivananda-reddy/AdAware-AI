@@ -33,6 +33,7 @@ class HoverPayload(BaseModel):
     image_url: Optional[str] = None
     page_url: Optional[str] = None
     ad_text: Optional[str] = None
+    consent: bool = False
     use_llm: bool = False
     sensitivity: float = 0.5  # 0.0 to 1.0
 
@@ -51,7 +52,7 @@ class SourceReputation(BaseModel):
     domain: Optional[str] = None
     https: bool = False
     domain_age_days: Optional[int] = None
-    flags: List[str] = []
+    flags: List[str] = Field(default_factory=list)
 
 # --- Response Models ---
 
@@ -69,19 +70,19 @@ class Evidence(BaseModel):
 
 class AnalysisResult(BaseModel):
     request_id: str
-    timestamp: str 
-    source: str = "extension" 
-    
+    timestamp: str
+    source: str = "extension"
+
     final_label: RiskLabel
     risk_score: float = 0.0
-    subcategories: List[RiskSubcategory] = []
-    
-    brand_entities: List[str] = []
+    subcategories: List[RiskSubcategory] = Field(default_factory=list)
+
+    brand_entities: List[str] = Field(default_factory=list)
     sentiment: str = "neutral"
-    emotions: List[str] = []
-    
+    emotions: List[str] = Field(default_factory=list)
+
     evidence: Evidence = Field(default_factory=Evidence)
-    rule_triggers: List[RuleTrigger] = []
+    rule_triggers: List[RuleTrigger] = Field(default_factory=list)
     source_reputation: SourceReputation = Field(default_factory=SourceReputation)
     
     ocr_text: Optional[str] = None
